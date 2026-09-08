@@ -1,0 +1,32 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local secrets
+.env
+.env.local
+
+# Foundry / anvil
+out/
+cache/
+broadcast/
+
+# App interception captures (secrets: tokens, auth headers)
+captures/
+*.flows
+
+# Recorded feeds: every listener writes one per run
+scripts/runs/*
+!scripts/runs/.gitkeep
+
+# Local scratch
+*.local.md
+*.local.json
+*.local.py

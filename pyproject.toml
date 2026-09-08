@@ -1,0 +1,28 @@
+[project]
+name = "robinhood-fomo"
+version = "0.1.0"
+description = "Onchain listeners and a technical reference for the FOMO trading app on Solana and Robinhood Chain"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiohttp>=3.14.3",
+    "base58>=2.1.1",
+    "grpcio>=1.71.0",
+    "protobuf>=5.29.4",
+    "python-dotenv>=1.2.3",
+    "requests>=2.34.2",
+    "web3>=7.16.0",
+    "websockets>=15.0",
+]
+
+[tool.ruff]
+line-length = 120
+# generated protobuf stubs, vendored as-is
+extend-exclude = ["scripts/geyser/generated"]
+
+[tool.ruff.lint]
+# Real defects and readability, not style opinions. Blind `except` is deliberate in
+# these scripts: an RPC call or an odd token must degrade to a printed "?" rather
+# than kill a listener mid-run. RUF100 is here because a `noqa` that no longer
+# suppresses anything is dead code that reads as a live constraint.
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF100"]

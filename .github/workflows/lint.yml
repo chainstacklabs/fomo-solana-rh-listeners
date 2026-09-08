@@ -1,0 +1,25 @@
+# Ruff, on every push and pull request. The version is pinned because a formatter
+# release can reflow code nobody touched, and a lint job that fails on an untouched
+# file teaches everyone to ignore it. Bump it here and in the local runs together.
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Reads the checkout and nothing else.
+permissions:
+  contents: read
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install ruff==0.16.6
+      - run: ruff check scripts/
+      - run: ruff format --check scripts/

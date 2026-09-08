@@ -1,0 +1,718 @@
+{
+  "chain": {
+    "name": "Robinhood Chain",
+    "chainId": 4663,
+    "blockTimeSeconds": 0.101,
+    "explorer": "https://robinscan.io",
+    "verifiedAt": "2026-08-27"
+  },
+  "accountLayer": {
+    "entryPoint": {
+      "address": "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+      "what": "ERC-4337 v0.8 EntryPoint, canonical",
+      "alsoOn": [
+        "arbitrum",
+        "ethereum"
+      ]
+    },
+    "entryPointV07": {
+      "address": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+      "what": "ERC-4337 v0.7 EntryPoint. Deployed on this chain and carries other traffic; FOMO does not use it."
+    },
+    "entryPointV06": {
+      "address": "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
+      "what": "ERC-4337 v0.6 EntryPoint. Deployed on this chain and carries other traffic; FOMO does not use it."
+    },
+    "accountImplementation": {
+      "address": "0xe6cae83bde06e4c305530e199d7217f42808555b",
+      "what": "Simple7702Account (eth-infinitism reference), 3639 bytes, unmodified",
+      "alsoOn": [
+        "arbitrum",
+        "ethereum"
+      ]
+    },
+    "fomoWalletFingerprint": {
+      "test": "eth_getCode(addr) == 0xef0100e6cae83bde06e4c305530e199d7217f42808555b",
+      "what": "EIP-7702 delegation designator: 0xef0100 followed by the implementation the wallet runs. That implementation identifies the application, not just FOMO. Use it as a label, not only as a test.",
+      "note": "Dusting wallets delegate to 0x1c08930b2d330447e6c05b5be8c4caf172b4a174 - not FOMO."
+    },
+    "bundlers": {
+      "pattern": "EOAs prefixed 0x4337",
+      "observedDistinct": 52,
+      "what": "Rotating fleet. DO NOT allowlist addresses - use the wallet fingerprint instead.",
+      "known": [
+        "0x4337015333e7c8a3c5af4ACD2c4aA4bEfb0D663C",
+        "0x43370277eCaAb8cb1F98622138Efc679F9aC3063",
+        "0x43370597aF41d9345B1B91391849DcDB748C2838",
+        "0x43370371e0bb085d04D02a815230aAf67B35eF25"
+      ]
+    },
+    "otherApplications": {
+      "what": "FOMO is one tenant of Relay on this chain. Sampling distinct recipients of executor fills, roughly two thirds carry FOMO's delegation and the rest carry other implementations, plus plain EOAs and contracts. A contract on the receiving end is the executor's own routing rather than anybody's delivery.",
+      "observedImplementations": [
+        "000000009b1d0af20d8c6d0a44e162d11f9b8f00",
+        "69007702764179f14f51cdce752f4f775d74e139",
+        "e8b12077f4f9c3e1b239a62f283fe4ef6ec9c449",
+        "77021100bd87b7008e5e1989d0eb38555d0d0000",
+        "63c0c19a282a1b52b07dd5a65b58948a07dae32b"
+      ],
+      "note": "Not identified by name. Listed so a reader knows the executor is shared.",
+      "verifiedAt": "2026-09-06"
+    }
+  },
+  "intentLayer": {
+    "relayDepository": {
+      "address": "0x4cD00E387622C35bDDB9b4c962C136462338BC31",
+      "what": "Relay intent escrow. Users deposit here; allocator sweeps to solver treasury.",
+      "owner": "0xF61A305199fa1135d76FFaB3752D42F55cBd775A",
+      "allocator": "0x63C1d3E9C646184529C5694630a01C00dF171b56",
+      "alsoOn": [
+        "arbitrum",
+        "ethereum"
+      ],
+      "warning": "callRequests(bytes32) is ALWAYS false - ids are never consumed onchain."
+    },
+    "relayRouter": {
+      "address": "0xCcC88a9d1B4ED6b0EABA998850414b24f1c315bE",
+      "what": "Relay multicall entry. Sells approve this and call transferAndMulticall.",
+      "owner": "0x463cB782c8dd0a1887b77336DfF74D60F006F56E",
+      "alsoOn": [
+        "arbitrum",
+        "ethereum"
+      ],
+      "orderIdInCalldata": "A solver's fill is a call to this router whose calldata ends with the 32-byte order id from the deposit that paid for it on the other chain. Reading the last word is the whole cross-chain join, with no Relay API in the path. Only router calls carry it: a Transfer out of the executor inside a handleOps bundle is not a solver fill and its calldata ends with something else."
+    },
+    "relayExecutor": {
+      "address": "0xb92fe925DC43a0ECdE6c8b1a2709c170Ec4fFf4f",
+      "what": "Performs the swap and delivers tokens. Buy fills originate here.",
+      "alsoOn": [
+        "arbitrum",
+        "ethereum"
+      ]
+    },
+    "solverTreasury": {
+      "address": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
+      "what": "EOA. Fronts capital for fills; sole destination of every depository sweep."
+    },
+    "fomoFundingEoa": {
+      "address": "0x083b5091662DAbd34416b2658598cbc90Bf0E6Dc",
+      "what": "EOA. Credits user wallets on withdrawal/refund."
+    }
+  },
+  "aggregationLayer": {
+    "allowanceHolder": {
+      "address": "0x0000000000001fF3684f28c67538d4D072C22734",
+      "what": "0x Protocol v2 AllowanceHolder. Emits no events, so a log-based listener never sees it. Outside FOMO's route: party to a token transfer in 0 of 221 FOMO bundles over blocks 57993000-57993400.",
+      "alsoOn": [
+        "arbitrum",
+        "ethereum"
+      ],
+      "verifiedAt": "2026-09-08"
+    },
+    "settler": {
+      "address": "0x39b38686a19836ac10162c490e4558e120cbbe5f",
+      "what": "0x Settler, Robinhood Chain deployment. INSIDE FOMO's route: a party to the token transfers in 70 of 221 FOMO bundles over blocks 57993000-57993400, and in 8 of 11 sampled bundles it returns the proceeds to relayExecutor. No FOMO wallet calls it directly, which is why an earlier count of transactions sent from FOMO-delegated wallets (blocks 57679764-57699764) concluded it was outside the route - it is reached inside the executor's inner calls, so measure it by transfer party and not by transaction sender.",
+      "alsoOn": [],
+      "verifiedAt": "2026-09-08",
+      "emits": "Almost nothing, and what it does emit is anonymous - no topic0 at all. 1 anonymous log across 45 sampled bundles, and 14 in a 500-block window on its own address. A decoder that indexes topics[0] without checking crashes on these."
+    }
+  },
+  "venues": {
+    "_warning": "At least 9 active AMM factories on Robinhood Chain. The chain-wide factory ranking below is a top-120-pool sample and MISSES Uniswap V4, which is a singleton and has no factory.",
+    "swapEventShapes": {
+      "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f": "Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24) - Uniswap V4, singleton PoolManager",
+      "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67": "Swap(address,address,int256,int256,uint160,uint128,int24) - Uniswap V3",
+      "0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83": "Swap(address,address,int256,int256,uint160,uint128,int24,uint128,uint128) - Pancake V3 fork",
+      "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822": "Swap(address,uint256,uint256,uint256,uint256,address) - Uniswap V2, indexed sender and to, data is amount0In amount1In amount0Out amount1Out"
+    },
+    "factories": [
+      {
+        "address": "0x1f7d7550b1b028f7571e69a784071f0205fd2efa",
+        "codesize": 24535,
+        "poolCreatedTopic0": "0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118",
+        "role": "DOMINANT venue AND the launchpad. This is the one that matters."
+      },
+      {
+        "address": "0x8bceaa40b9acdfaedf85adf4ff01f5ad6517937f",
+        "codesize": 13859
+      },
+      {
+        "address": "0x1ac9db4a2608ba45d6127b1737949b51bb54b7f3",
+        "codesize": 4917
+      },
+      {
+        "address": "0xEce6eCd61177336ea6Fb9b17937AC439D85EE20B",
+        "codesize": 4518,
+        "role": "Pancake-V3-fork Swap shape; stale for new pools but still carries a meaningful slice of FOMO swaps. Confirmed 2026-08-31."
+      },
+      {
+        "address": "0x16494A80E08Bcb9285D87b67149d7b01774D82F8",
+        "codesize": 2210,
+        "role": "Active AMM factory; protocol unidentified."
+      },
+      {
+        "address": "0xe0c4ceb92d08ca985bb70fe0a22feb121a9854a8",
+        "codesize": 3423
+      },
+      {
+        "address": "0xea561e058313b96011e5070ca7d0f027a44e3748",
+        "codesize": 24123
+      },
+      {
+        "address": "0x0ec554f0bff0be6c99d1e95c8015bb0950f6a2c7",
+        "codesize": 5558
+      },
+      {
+        "address": "0xe51960f1b45f1c9fb6d166e6a884f866fc70433b",
+        "codesize": 24535
+      }
+    ],
+    "uniswapV4PoolManager": {
+      "address": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+      "what": "Uniswap V4 singleton. Every V4 pool lives inside it, so all V4 Swap logs share this address.",
+      "verifiedAt": "2026-08-31"
+    },
+    "nonUniswapVenues": {
+      "_note": "Owned contracts, not pools. A FOMO sell can complete through these with no Uniswap Swap log in the transaction. Protocol unidentified; share of FOMO flow unmeasured.",
+      "0x8F10B468b06c6FD214B65F87778827F7D113f996": {
+        "topic0": "0xa6fee24309b1d83d9ec7b9e4dbb73c6f882746efbfb26db7b7d9e9f2fb6dc95a",
+        "codesize": 13529,
+        "owner": "0x56792D335D510B313FA521747559821525a459BE"
+      },
+      "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5": {
+        "topic0": [
+          "0xd6d4f5681c246c9f42c203e287975af1601f8df8035a9251f79aab5c8f09e2f8",
+          "0x095e66fa4dd6a6f7b43fb8444a7bd0edb870508c7abf639bc216efb0bcff9779"
+        ],
+        "codesize": 13724,
+        "owner": "0x1874028262F1F4B2DD1F2700A72Ee8b9b7C69090"
+      }
+    },
+    "_factoryOrder": "Listed most to least active as surveyed on 2026-08-31. The order is the claim; no throughput is recorded.",
+    "venueMix": "Uniswap V4 and V3 each carry a large and comparable share of FOMO swaps, and the Pancake-V3 fork and Uniswap V2 carry the rest. Handling only one of V4 and V3 drops about half the flow, so decode all four Swap shapes. Measured 2026-08-31 with a venue census over FOMO user operations; the split moves, the requirement to handle all four does not."
+  },
+  "tokens": {
+    "USDG": {
+      "address": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+      "decimals": 6,
+      "name": "Global Dollar",
+      "role": "quote asset of record, 96 of 165 DEX-A pools"
+    },
+    "WETH": {
+      "address": "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+      "decimals": 18,
+      "role": "secondary hub, 64 pools"
+    },
+    "lookalikes_DO_NOT_TRADE": [
+      {
+        "address": "0x1dC878194328A96680C23B8d3c1186637b199eB3",
+        "symbol": "USDG",
+        "decimals": 18
+      },
+      {
+        "address": "0xC6aCA22a4FC9bd5a1CB1a35715F6FDD0FC4C3D2d",
+        "symbol": "USGD",
+        "decimals": 18
+      }
+    ]
+  },
+  "events": {
+    "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f": {
+      "at": "entryPoint",
+      "abi": "UserOperationEvent(bytes32,address,address,uint256,bool,uint256,uint256)",
+      "indexed": [
+        "userOpHash",
+        "sender",
+        "paymaster"
+      ],
+      "data": [
+        "nonce",
+        "success",
+        "actualGasCost",
+        "actualGasUsed"
+      ],
+      "use": "PRIMARY FEED - every FOMO user action. sender is topic[2]."
+    },
+    "0xbb47ee3e183a558b1a2ff0874b079f3fc5478b7454eacf2bfc5af2ff5878f972": {
+      "at": "entryPoint",
+      "abi": "BeforeExecution()",
+      "use": "bundle boundary marker - execution logs start after this"
+    },
+    "0x1c4fada7374c0a9ee8841fc38afe82932dc0f8e69012e927f061a8bae611a201": {
+      "at": "entryPoint",
+      "abi": "UserOperationRevertReason(bytes32,address,uint256,bytes)",
+      "use": "failed user action, a small fraction of operations"
+    },
+    "0x49fed1d0b752ce30eee63c7a81133f3363b532fec5d4d7dd1ccfd005de4555e1": {
+      "at": "relayDepository",
+      "abi": "RelayErc20Deposit(address,address,uint256,bytes32)",
+      "data": [
+        "depositor",
+        "token",
+        "amount",
+        "requestId"
+      ],
+      "use": "BUY INTENT (and sell proceeds). Token bought is NOT revealed."
+    },
+    "0x8032066556caf3967d8fec4ad22a2d9e1e9576556b2903a0fcd5b1fd201e3477": {
+      "at": "relayDepository",
+      "abi": "RelayNativeDeposit(address,uint256,bytes32)",
+      "use": "Same trade as RelayErc20Deposit, paid in ether. Subscribe to both or the buys paid this way are invisible: the amount is at word 1 and the order id at word 2, one word earlier than the ERC-20 shape.",
+      "data": [
+        "depositor",
+        "amount",
+        "requestId"
+      ],
+      "verifiedAt": "2026-09-06"
+    },
+    "0x4be109453ef7e895dc7215c929fff9b76b51483d56a4d04548b4866e9aa7c5ea": {
+      "at": "relayDepository",
+      "abi": "RelayCallExecuted(bytes32,(address,bytes,uint256,bool))",
+      "shape": "(bytes32 id, ..., address recipient=solverTreasury, ..., uint256 amount)",
+      "use": "SETTLEMENT SWEEP - allocator releasing escrow to the solver. Infrequent.",
+      "verifiedAt": "2026-09-08",
+      "note": "keccak of the signature matches topic0 exactly."
+    },
+    "0xafbab204e8271965231d37baed9b1abca8725b7409c70314455f68bc89142b91": {
+      "at": "relayRouter, relayExecutor",
+      "abi": "FundsMovement(address,address,address,uint256,bytes)",
+      "shape": "(address, address, address token, uint256 amount, bytes id33)",
+      "use": "per-request marker on router and executor; id is 33 bytes (cross-chain encoded)",
+      "verifiedAt": "2026-09-08",
+      "note": "keccak of the signature matches topic0 exactly."
+    },
+    "0x93485dcd31a905e3ffd7b012abe3438fa8fa77f98ddc9f50e879d3fa7ccdc324": {
+      "at": "relayExecutor",
+      "abi": "SolverCallExecuted(address,bytes,uint256)",
+      "shape": "(address target, bytes callData, uint256 value)",
+      "use": "each inner call the executor makes; the highest-volume Relay event",
+      "verifiedAt": "2026-08-31",
+      "note": "keccak of the signature matches topic0 exactly."
+    },
+    "0xd35467972d1fda5b63c735f59d3974fa51785a41a92aa3ed1b70832836f8dba6": {
+      "at": "relayExecutor",
+      "abi": "SolverNativeTransfer(address,uint256)",
+      "shape": "(address=solverTreasury, uint256 amount)",
+      "use": "executor returning native value to the solver treasury",
+      "verifiedAt": "2026-09-08",
+      "note": "keccak of the signature matches topic0 exactly."
+    },
+    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef": {
+      "at": "any ERC-20",
+      "abi": "Transfer(address,address,uint256)",
+      "use": "BUY FILL when from == relayExecutor and to is a FOMO wallet"
+    }
+  },
+  "listeningRecipes": {
+    "allFomoActions": {
+      "address": "entryPoint",
+      "topic0": "UserOperationEvent",
+      "then": "filter senders by fomoWalletFingerprint"
+    },
+    "fomoSells": {
+      "address": "entryPoint",
+      "topic0": "UserOperationEvent",
+      "then": "in the SAME user-operation log span read the Swap logs and the RelayErc20Deposit. Scope by span, not by transaction hash - a handleOps bundle carries several users."
+    },
+    "fomoBuyIntents": {
+      "address": "relayDepository",
+      "topic0": "RelayErc20Deposit",
+      "then": "filter depositor by fomoWalletFingerprint, and require NO swap in the same user-operation span (a swap there means it is a sell's proceeds). Most buys landing on Robinhood Chain are paid for from Solana, so this sees a minority of them; the fill is the complete feed."
+    },
+    "fomoBuyFills": {
+      "address": null,
+      "topic0": "Transfer",
+      "topic1": "relayExecutor padded to 32 bytes",
+      "then": "filter recipient by fomoWalletFingerprint. Names the token; venue from the swap logs in the same transaction; order id from the router calldata."
+    }
+  },
+  "gotchas": [
+    "Bundles carry multiple users - scope logs per UserOperationEvent, never per receipt.",
+    "Never string-search handleOps calldata for a selector; ABI-decode and match by sender.",
+    "Four Swap event shapes carry FOMO flow: Uniswap V4, Uniswap V3, a Pancake V3 fork and Uniswap V2. Handling one silently mis-parses or drops the others. All four are in venues.swapEventShapes.",
+    "account.getNonce() reads 4337 nonce key 0 and is always 0. FOMO uses timestamp nonce keys.",
+    "callRequests(bytes32) is always false. Not a settlement check.",
+    "USDG is 6 decimals. Two 18-decimal lookalikes exist. Resolve tokens by address only.",
+    "Bundler EOAs rotate (52+ observed). Allowlisting them goes stale silently.",
+    "At least nine active AMM factories exist on this chain. A survey that finds two has sampled one user, not the chain.",
+    "FOMO trades established tokens through Relay's router and executor into established pools. New launches are a different crowd on different routers. Do not conflate them.",
+    "Uniswap V4 and V3 both carry a large share of FOMO swaps, so handle both. V4 is a singleton (0x8366a39c\u2026) and its pools are NOT contracts - subscribe to the PoolManager address and filter by pool id. V3 is one contract per pool.",
+    "V4 PoolManager is NOT at the canonical 0x000000000004444c\u2026 address on this chain.",
+    "An acknowledged subscription is not a working one - Relay's websocket accepts a filter it never delivers on.",
+    "Solvers do not pre-position: 60/60 sampled fills swap inside the fill transaction, so nothing leaks before it.",
+    "Solana: a closed wrapped-SOL account refunds ~0.002 SOL. Ignore SOL movements under 0.005 when anything else moved, or rent gets reported as the token bought.",
+    "Solana: FOMO uses at least three routers, not one. Classify a swap by what moved; read the router afterwards.",
+    "Not every Relay depository deposit is FOMO - about 15% come from wallets carrying a different delegation. Apply the wallet code test to depositors, not only to fill recipients.",
+    "A wallet's EIP-7702 delegation is set by its first operation, so its very first buy lands before the wallet is recognisable. That one buy cannot be attributed to FOMO by any code test.",
+    "The Robinhood HTTPS endpoint is load balanced over backends with different heads. A range eth_getLogs whose end is past the answering backend's head returns fewer logs with no error. Query logs by blockHash and pin lookups to a block number, then retry when a backend refuses.",
+    "web3.py's async provider stalls under concurrency - at 25 in flight a quarter of calls hang until they time out. The listeners use raw JSON-RPC over aiohttp for anything hot.",
+    "How fast and how completely a subscription is served is a property of the endpoint and the day, not of the transport - the same endpoint and subscription have behaved very differently 24 hours apart. Do not record a figure here; measure with scripts/maintenance/compare_listeners.py when it matters.",
+    "Do not record how long anything takes, or how often it happens, where a decoder could come to depend on it. Timings and rates measured here have not held - transport delivery swung by more than an order of magnitude on one endpoint within an afternoon, and a median measured over one origin chain was read as describing every buy. Record what is true regardless of the day: addresses, topics, shapes, decimals, and the rules that follow from them. A third-party market survey may stay if it names its source and its date and nothing decodes from it; measure volume and timing yourself when it matters.",
+    "The order id joins the legs and is written on both chains: bytes 16..48 of the Solana deposit instruction, and the last 32 bytes of the solver's call to Relay's router. No third party is needed to match them.",
+    "A wallet's EIP-7702 implementation names the application behind it. FOMO is one of several on this chain, so treat the delegation as a label; filtering on FOMO's alone discards the rest of Relay's traffic.",
+    "A Relay deposit comes in two shapes and they are the same trade. RelayNativeDeposit pays in ether, has one word fewer, and is missed entirely by a listener watching only RelayErc20Deposit.",
+    "A Robinhood Chain sell settles on Solana as a solver's spl-token transfer carrying the order id in an spl-memo. FOMO's co-signer is not in that transaction, so a co-signer subscription cannot see it, and getSignaturesForAddress on the seller's wallet does not list it either - query the USDC token account."
+  ],
+  "execution": {
+    "mempool": "NONE. eth_newPendingTransactionFilter returns a filter id but yields zero txs. Arbitrum Nitro sequencer, no public gossip. No front-running, no mempool sniping. Edge is latency-to-sequencer plus reaction speed on confirmed state.",
+    "launchSnipe": {
+      "watch": "PoolCreated 0x783cca1c\u2026 on factory 0x1f7d7550b1b028f7571e69a784071f0205fd2efa",
+      "note": "This is the pump.fun-shaped opportunity, reacting to a confirmed log rather than mempool."
+    },
+    "cashHub": "Solana holds the cash, Robinhood Chain holds the tokens: 43/50 RH-origin Relay requests pay out to Solana, 48/50 Solana-origin requests deliver on RH. Nearly every trade crosses."
+  },
+  "launchpad": {
+    "factory": "0x1f7d7550b1b028f7571e69a784071f0205fd2efa",
+    "poolCreatedTopic0": "0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118",
+    "dominantLaunchRouter": {
+      "address": "0xcaf681a66d020601342297493863e78c959e5cb2",
+      "codesize": 24497,
+      "share": "37 of 44 sampled early swaps"
+    },
+    "otherRouters": [
+      "0x65050a9b7e5075a2ba5ced7b1b64ee66262c40dc",
+      "0xe492912f37c2a4eca45d42dc67548f4c6cd7ce2b",
+      "0x53bf6b0684ec7ef91e1387da3d1a1769bc5a6f77"
+    ],
+    "competition": {
+      "distinctEarlyBuyerEoas": 26,
+      "observation": "many early buyers are plain EOAs with tightly clustered nonces",
+      "inference": "the tight nonce clustering is consistent with one operator running a bot fleet rather than 26 independent traders",
+      "earlySwapClusters": "Early swaps arrive in two distinct groups rather than spread out: one reacting to the creation log immediately, and one on a repeated fixed delay. The second is consistent with a bot on a timer rather than with traders."
+    },
+    "fomoOverlap": {
+      "sampled": 65,
+      "viaFomoRelay": 0,
+      "conclusion": "FOMO flow does NOT reach newly launched pools. The launchpad and FOMO are separate markets."
+    }
+  },
+  "memecoinMarket": {
+    "_method": "Two independent sources: (1) onchain clustering of new pools + token bytecode templates, (2) DefiLlama protocol/fee API. They agree on the ranking.",
+    "primaryVenue": {
+      "uniswapV4PoolManager": "0x8366a39cc670b4001a1121b8f6a443a643e40951",
+      "note": "NOT the canonical 0x000000000004444c\u2026 address. V4 is a SINGLETON - pools are not contracts. Listen to events on this one address.",
+      "codesize": 24009,
+      "initializeTopic0": "0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438",
+      "initializeAbi": "Initialize(bytes32 id,address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks,uint160 sqrtPriceX96,int24 tick)",
+      "swapTopic0": "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f",
+      "swapAbi": "Swap(bytes32 id,address sender,int128 amount0,int128 amount1,uint160 sqrtPriceX96,uint128 liquidity,int24 tick,uint24 fee)",
+      "pairedWith": {
+        "native ETH (0x0)": 48,
+        "USDG": 22,
+        "WETH": 11
+      },
+      "topCreator": "0x58daec3116aae6d93017baaea7749052e8a04fa7 (23877B, 39 of 90 sampled)",
+      "alsoCreatedVia": "ERC-4337 EntryPoint v0.7 0x0000000071727De22E5E9d8BAf0edAc6f37da032 (9 of 90)",
+      "hooksSeen": {
+        "none": 59,
+        "0x4e3468951d49f2eea976ed0d6e75ffcb44a9a544": 14,
+        "0x75a54357d9c78a2db19004a5fdc76c50f9242aec": 5,
+        "0x14f1ad1c3a3a4e8e3d5cf7416ba094a33074facc": 5
+      }
+    },
+    "secondaryVenue": {
+      "uniswapV3Factory": "0x1f7d7550b1b028f7571e69a784071f0205fd2efa",
+      "positionManager": "0x73991a25c818bf1f1128deaab1492d45638de0d3",
+      "swapRouter02": "0xcaf681a66d020601342297493863e78c959e5cb2",
+      "pairedWith": {
+        "WETH": 339,
+        "USDG": 17,
+        "other": 13
+      },
+      "feeTiers": {
+        "10000 (1%)": 308,
+        "100": 38,
+        "3000": 21,
+        "500": 2
+      },
+      "note": "All three byte-length identical to canonical Ethereum Uniswap V3 deployments."
+    },
+    "launchpads": {
+      "_ranking": "DefiLlama 24h fees, Robinhood Chain. A third-party snapshot, not a measurement.",
+      "byFees24h": [
+        [
+          "Pons V2",
+          1748416
+        ],
+        [
+          "Pons V1",
+          285521
+        ],
+        [
+          "NOXA Fun",
+          196900
+        ],
+        [
+          "LetsCash",
+          74315
+        ]
+      ],
+      "chainTotals": {
+        "launchpadProtocols": 29,
+        "dexProtocols": 40,
+        "allProtocols": 131
+      },
+      "onchainIdentified": {
+        "pons": {
+          "tokenTemplateBytes": 5274,
+          "vanityAddressSuffix": "b07",
+          "shareOfV3Launches": "46%",
+          "PONS_token": "0x39dBED3a2bd333467115dE45665cC57F813C4571",
+          "observedDeployer": "0x1cbaf24d53fe930fce8eff149fa797d2611da149 (20443B)",
+          "docsActiveFactory": "0xA5aAb3F0c6EeadF30Ef1D3Eb997108E976351feB (24353B, verified onchain)",
+          "docsLegacyFactory": "0x0c37a24F5D23A486FA692d1500881d698B1F77a4 (24192B, verified onchain)",
+          "docsLocker": "0x736D76699C26D0d966744cAe304C000d471f7F35 (5426B, verified onchain)",
+          "evidence": "PONS token itself is 5274B - same template as the .b07 cluster",
+          "notMapped": "which of the three factory addresses maps to V1 vs V2"
+        },
+        "rhChip": {
+          "factory": "0x8429c2c06442c01d916c1286573d0948efcea0ea (16422B)",
+          "name": "RH Chip (from name())",
+          "tokenTemplateBytes": 2116,
+          "owner": "0x09fc0281da0b2d052a3ad8ea2cdfd01ef8243baf"
+        },
+        "imortal": {
+          "factory": "0xc49ae5c380e77a8875c22f809a73bf971595c10a (20369B)",
+          "name": "imortal.buzz (URL in bytecode)",
+          "tokenTemplateBytes": 3336,
+          "owner": "0x71cd55c128ee228989fb93b2be2501041ed6a493"
+        },
+        "unnamedProxy": {
+          "factory": "0xf4fc0cd27fc8ecf17e55ee4c3f7201897df3eb75 (130B minimal proxy)",
+          "tokenTemplateBytes": 5256
+        }
+      },
+      "namedByDefiLlamaNotYetMappedOnchain": [
+        "ArrowPad",
+        "ArrowPad.fun",
+        "AvaLove",
+        "Based Alpha",
+        "basedbid",
+        "BlueFun",
+        "Boardwalk",
+        "BowYard",
+        "DexLaunch",
+        "DOTT",
+        "Frontier",
+        "H00D",
+        "HoodMint",
+        "HoodPump",
+        "keep.coffee",
+        "LuckyLaunch",
+        "MerryForge",
+        "Mixpad",
+        "NOXA Fun",
+        "Peeps",
+        "popi",
+        "RaiseHood",
+        "RH.fun",
+        "RobinFun",
+        "Sentry",
+        "StonkBrokers",
+        "token.select",
+        "Unihood",
+        "ymym.meme"
+      ],
+      "_asOf": "2026-08-31"
+    },
+    "whoTrades": {
+      "GMGN": {
+        "category": "Telegram bot",
+        "fees24h": 430253,
+        "note": "4th highest fee earner on the whole chain - a major retail trading route"
+      },
+      "FOMO": {
+        "route": "Relay router -> Relay executor -> established pools",
+        "note": "does NOT touch newly launched pools (0 of 65 sampled)"
+      },
+      "sniperFleet": {
+        "note": "26 distinct EOAs with tightly clustered nonces buying immediately after pool creation; likely one operator"
+      },
+      "otherIntentExecutor": "0x1fae6f162355cf77bf7f23cb919130962dad4ecb 'Rialto Intent Executor'",
+      "_asOf": "2026-08-31",
+      "_source": "DefiLlama 24h fees plus onchain clustering. Nothing decodes from it."
+    }
+  },
+  "offchain": {
+    "_verifiedAt": "2026-08-31",
+    "_method": "observed in the FOMO iOS app v1.87.1, cross-checked against the onchain registry.",
+    "signer": {
+      "provider": "Privy",
+      "authHost": "auth.privy.io",
+      "privyAppId": "cm6h485o300n3zj9yl6vpedq7",
+      "what": "Embedded wallet + auth. Controls the EIP-7702 accounts the accountLayer fingerprints. Same provider signs the Solana side."
+    },
+    "backendApi": {
+      "host": "prod-api.fomo.family",
+      "auth": "Privy ES256 JWT, Bearer, ~1h exp",
+      "keyEndpoints": {
+        "buildSwap": "POST /swaps/v2  {inTokenId,outTokenId,amount,retry} -> v2Swap{relayTransaction, relaySwapId, usdFees, feeTierBps}",
+        "swapStatus": "GET /swaps/v2/status?relaySwapId=  -> PENDING|SUCCESS",
+        "tokenGate": "POST /proxy/tokenWarnings {address,networkId} -> {disableBuying,disableSelling,warnings}",
+        "discovery": "/proxy/{trendingTokens,filterTokens,verifiedTokens,tokenDetails}, /tokenAllowList/detailed",
+        "relayTracker": "GET /proxy/getPendingRelayRequests?userAddress="
+      },
+      "minSwapUsd": 2.0,
+      "feeTierBps": 50,
+      "slippageBps": 400
+    },
+    "bundlerRpc": {
+      "url": "bundler.prod-edge.fomo.family/v2/4663/rpc",
+      "what": "ERC-4337 bundler RPC for RH chain. eth_sendUserOperation / eth_getUserOperationReceipt. Gas sponsored (maxFeePerGas 0x0).",
+      "executeBatchSelector": "0x34fcd5be"
+    },
+    "rpcProxies": {
+      "evmData": "evm-data.prod-edge.fomo.family/robinhood-mainnet (eth_call only from client: balanceOf, decimals)",
+      "solana": "solana-provider-{1,3}.prod-edge.fomo.family",
+      "solanaSubmit": "mainnet.hudson.jito.wtf/api/v1/sendTransaction, mainnet.block-engine.jito.wtf/api/v1/bundles"
+    },
+    "dataProviders": {
+      "tokenMetadata": [
+        "metadata.mobula.io",
+        "token-media.defined.fi"
+      ],
+      "what": "Token records carry asset URLs on these hosts, which places both providers behind the records. The token universe is not FOMO-native. Token id format <address>:<chainId>. How much of a record each provider supplies, and the commercial arrangement behind either, is not visible in the traffic."
+    },
+    "executionGrant": {
+      "field": "v2Swap.executionContext (base64 -> {version, grant})",
+      "grant": "ES256 JWT {gv, hash=userOpHash, chainId, sender, iss:fomo-server, aud:fomo-edge, exp:+5min}",
+      "what": "Server authorizes fomo-edge to submit the 7702 userop. The offchain authorization layer over the onchain account."
+    },
+    "crossChainCorrelation": {
+      "id": "relaySwapId (a.k.a. Relay requestId), e.g. 0x1788172089...",
+      "notify": "POST api.relay.link/transactions/index {txHash, chainId, requestId} - app tells Relay the origin-leg tx per requestId",
+      "ws": "ws.relay.link",
+      "onchainAnchor": "RelayErc20Deposit bytes32 (Relay onchain order id, != relaySwapId) links the RH-chain leg",
+      "note": "Buy origin chainId=792703809 (Solana); sell origin chainId=4663. Pair the two legs by relaySwapId offchain."
+    },
+    "supportedChains": {
+      "1399811149": "Solana (dominant token share)",
+      "4663": "Robinhood Chain",
+      "8453": "Base",
+      "1": "Ethereum",
+      "56": "BNB Chain",
+      "143": "Monad"
+    },
+    "tokenDisplayVsExecution": {
+      "display": "App surfaces launchpad tokens across 6 chains with graduationPercent (bonding-curve progress) via Mobula/Defined.fi.",
+      "execution": "On 4663, FOMO routes Relay router -> Relay executor -> ESTABLISHED pools. graduationPercent does NOT gate execution; matches onchain 'launchpad and FOMO are separate markets' (0/65)."
+    },
+    "solana": {
+      "relayProgram": "99vQwtBwYtrqqD9YSXbdum3KBdxPAVxYTaQ3cfnJSrN2",
+      "buyInstructionDiscriminator": "0x0b9c60da27a3b413",
+      "relayFeePayer": "AgmLJBMDCqWynYnQiPCuj9ewsNNsBJXyzoUhD9LJzN51",
+      "usdcMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "userAddressExample": "54vhJJgZRL6Ycc9X5UgeRxbu6PELPXoE4DmqJV4CU7wd (Privy-managed)",
+      "submit": "Jito (mainnet.hudson.jito.wtf/sendTransaction, block-engine bundles)",
+      "listen": "Buys: instruction to relayProgram depositing USDC. Sell-fills: USDC transfer in to user ATA from Relay.",
+      "_verifiedAt": "2026-08-31 (decoded from captured v0 tx AND re-read from Solana mainnet RPC: getTransaction + getMultipleAccounts)",
+      "relayProgramConfig": "Dodg2HifwU8rmaVVyMyUZDGTRbqAJTyVYxXPwcbNpBKc (PDA, 108 bytes, owned by relayProgram)",
+      "relayVaultAuthority": "7uTT8Xi5RWXzy7h9XL244GRgEycDYDhLjr3ZyNdXi8pZ (system-owned; owns the USDC token account deposits land in)",
+      "buyInstructionName": "DepositToken (from the program's own log line)",
+      "feePayerPaysNetworkFee": "Relay fee payer is signer 0 and pays; user address holds 0 lamports and need not exist onchain.",
+      "sameChainExecution": "In scope and observed. A Solana-for-Solana trade routes through one of solana.routers with the proceeds landing in the user's own wallet, and Relay has no part in it. shared/solana.py classifies it as SWAP. No Solana aggregator appears in the cross-chain path, where routing is the solver's business."
+    }
+  },
+  "relayChain": {
+    "chainId": 537713,
+    "rpc": "https://rpc.chain.relay.link",
+    "wss": "wss://rpc.chain.relay.link/",
+    "explorer": "https://explorer.chain.relay.link",
+    "blockTimeSeconds": 2.8,
+    "what": "Relay's settlement chain. Sovereign Stack rollup, Celestia DA. Downstream of the fill.",
+    "contracts": {
+      "oracle": {
+        "address": "0xd180Dc3b8Cb71b185c563B6e4857592cA93dACAf",
+        "what": "RelayOracleV2. executeMultiple batches fill attestations. Action = 128 bytes: type, account, tokenId, amount. NO order id."
+      },
+      "hub": {
+        "address": "0xDDD361727C22A01EB137880678A20b0BEaE69318",
+        "what": "ERC-6909 ledger. One token id per (asset, origin chain). MINT on deposit, TRANSFER to solver on fill, BURN on withdrawal."
+      },
+      "allocator": {
+        "address": "0x613D3c588F6B8f89302b463F8F19f7241B2857E2",
+        "what": "submitWithdrawRequestWithSignature - authorises withdrawals."
+      }
+    },
+    "quirks": [
+      "eth_newFilter is not supported",
+      "wide eth_getLogs ranges are rejected; use eth_getLogsWithCursor",
+      "no user address appears here - 0 of 20 sampled attestation accounts were FOMO wallets"
+    ]
+  },
+  "relayApi": {
+    "rest": "https://api.relay.link/requests/v2?orderId=<bytes32 from the deposit>",
+    "websocket": "wss://ws.relay.link",
+    "subscribe": {
+      "type": "subscribe",
+      "event": "request.status.updated",
+      "filters": {
+        "id": "<relay request id, NOT the onchain order id>"
+      }
+    },
+    "statuses": [
+      "pending",
+      "submitted",
+      "success",
+      "refund"
+    ],
+    "quirks": [
+      "unknown query params are ignored and return the latest rows - a filter can appear to work when it was dropped",
+      "the websocket acks a subscription on the onchain order id and delivers nothing",
+      "pending records never carry currencyOut: 353 requests tracked, 34 transitions, 0 exceptions",
+      "records carry referrer:'fomo' - Relay's data labels the integrator",
+      "v2 deprecated: throttled 2026-09-01, retired 2026-11-24; v3 requires x-api-key",
+      "Not needed for the join. Both legs carry the order id onchain, so nothing here depends on this API."
+    ]
+  },
+  "solana": {
+    "coSigner": {
+      "address": "AgmLJBMDCqWynYnQiPCuj9ewsNNsBJXyzoUhD9LJzN51",
+      "what": "FOMO's co-signer. Signs and pays for EVERY FOMO transaction on Solana and is account 0 of each. THE marker on this chain."
+    },
+    "relayDepositProgram": {
+      "address": "99vQwtBwYtrqqD9YSXbdum3KBdxPAVxYTaQ3cfnJSrN2",
+      "what": "Relay deposit program. DepositToken instruction = 8-byte discriminator + u64 amount + 32-byte order id. No destination.",
+      "discriminator": "0x0b9c60da27a3b413",
+      "orderIdOffset": "Instruction data is an 8-byte discriminator 0b9c60da27a3b413, a u64 amount little-endian, then the 32-byte order id at bytes 16..48. That id is what the fill on the other chain ends its calldata with."
+    },
+    "vaultAuthority": "7uTT8Xi5RWXzy7h9XL244GRgEycDYDhLjr3ZyNdXi8pZ",
+    "configAccount": "Dodg2HifwU8rmaVVyMyUZDGTRbqAJTyVYxXPwcbNpBKc",
+    "usdcMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "note": "No code-based wallet marker exists here - FOMO wallets are ordinary Privy keypairs. Filter by the co-signer.",
+    "routers": {
+      "DF1ow4tspfHX9JwWJsAb9epbkA8hmpSEAtxXy1V27QBH": "DFlow",
+      "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4": "Jupiter",
+      "proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u": "unnamed, IDL published onchain"
+    },
+    "routersNote": "Registry v1 listed DFlow alone. At least three routers carry FOMO flow, with DFlow carrying most of it, so a swap must be recognised by what the wallet's own accounts gained and lost, never by one program id.",
+    "plumbingPrograms": [
+      "ComputeBudget111111111111111111111111111111",
+      "11111111111111111111111111111111",
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+    ],
+    "plumbingNote": "Present in almost every transaction. Exclude before naming the router.",
+    "rentDust": {
+      "threshold": 0.005,
+      "what": "Closing a wrapped-SOL account refunds its rent, about 0.002 SOL, to the wallet. It appears as a positive SOL delta beside the real trade and will be picked as the bought side.",
+      "rule": "Drop SOL and wSOL movements under 0.005 whenever anything else moved in the same transaction.",
+      "verifiedAt": "2026-09-05"
+    },
+    "wsolMint": "So11111111111111111111111111111111111111112",
+    "settlement": {
+      "solver": "F7p3dFrjRTbtRp8FRF6qHLomXbKRBzpvBLjtQcfcgmNe",
+      "what": "Delivers a Robinhood Chain sell's proceeds as USDC on Solana: a plain spl-token transfer into the seller's token account carrying the 32-byte Relay order id in an spl-memo.",
+      "memoPrograms": [
+        "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+        "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo"
+      ],
+      "coSignerAbsent": "FOMO's co-signer signs nothing here and appears nowhere in the transaction, so blockSubscribe or gRPC filtered on the co-signer never delivers a settlement. The sell is visible on Robinhood Chain only.",
+      "findingItAgain": "getSignaturesForAddress on the seller's wallet does not return these - an spl-token transfer names the token account, not its owner. Query the USDC token account from getTokenAccountsByOwner.",
+      "observed": "Over Robinhood blocks 57767865-57782865 (25 minutes), 166 deposits were settled by this address. Across 400 signatures on 15 sellers' USDC token accounts, all 120 memo-carrying deliveries came from it and no second solver appeared.",
+      "note": "Relay's solver addresses rotate the way this chain's bundlers do. Re-check before relying on the address; the memo and the token-account rule hold regardless of who signs.",
+      "verifiedAt": "2026-09-08"
+    },
+    "verifiedAt": "2026-09-06"
+  }
+}
