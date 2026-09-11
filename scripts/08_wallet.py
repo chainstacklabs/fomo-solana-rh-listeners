@@ -33,6 +33,7 @@ import sys
 
 from eth_abi import decode as abi_decode
 from shared import env
+from shared.cli import wallet_shaped
 from shared.robinhood import DELEGATION, ENTRYPOINT, FOMO_CODE, TRANSFER, USEROP
 from web3 import Web3
 
@@ -56,7 +57,14 @@ if not sys.argv[1].startswith("0x"):
         f"{sys.argv[1]} is not a Robinhood Chain address, and this script reads only that chain.\n"
         "For a Solana wallet, pass it to 00_listen_fomo.py or 04_listen_solana_blocks.py as a filter."
     )
+# A 0x that is not 40 hex digits is a typo, and web3 answers one with a traceback out of
+# its checksum helper. Say what the argument should look like instead, as every other
+# script here does.
+if not wallet_shaped(sys.argv[1]):
+    sys.exit(f"{sys.argv[1]!r} is not an address: 0x and 40 hex digits")
 who = Web3.to_checksum_address(sys.argv[1])
+if len(sys.argv) > 2 and not sys.argv[2].isdigit():
+    sys.exit(f"the second argument is a number of blocks, not {sys.argv[2]!r}")
 span = int(sys.argv[2]) if len(sys.argv) > 2 else 50000
 head = w3.eth.block_number
 lo = head - span
