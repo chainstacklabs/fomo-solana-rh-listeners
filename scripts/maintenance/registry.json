@@ -301,6 +301,19 @@
       "at": "any ERC-20",
       "abi": "Transfer(address,address,uint256)",
       "use": "BUY FILL when from == relayExecutor and to is a FOMO wallet"
+    },
+    "0x1b3d7edb2e9c0b0e7c525b20aaaef0f5940d2ed71663c7d39266ecafac728859": {
+      "at": "relayChain hub",
+      "chain": "relayChain",
+      "abi": "Transfer(address,address,address,uint256,uint256)",
+      "data": [
+        "caller",
+        "sender",
+        "receiver",
+        "id",
+        "amount"
+      ],
+      "use": "ERC-6909 ledger movement on Relay's own chain. sender == 0 is a deposit attested from any origin chain; receiver == 0 is a withdrawal burned; neither is a fill settled to a solver. maintenance/relay_share.py reads this as Relay's whole-protocol denominator."
     }
   },
   "listeningRecipes": {

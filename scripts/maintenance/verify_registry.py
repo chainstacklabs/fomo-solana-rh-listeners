@@ -128,7 +128,11 @@ head = w3.eth.block_number
 for topic, meta in reg["events"].items():
     at = meta["at"].split(",")[0].strip()
     if at not in addr_of:
-        print(f"  SKIP  {meta.get('abi', '?')[:44]} (any-address event)")
+        # Two different reasons to skip, and calling both "any-address" hides one: an
+        # event recorded against another chain is not checkable here at all, while a
+        # Transfer has no single address to look it up at.
+        why = f"on {meta['chain']}, not this chain" if meta.get("chain") else "any-address event"
+        print(f"  SKIP  {meta.get('abi', '?')[:44]} ({why})")
         continue
     logs = w3.eth.get_logs(
         {"fromBlock": head - 3000, "toBlock": head, "address": Web3.to_checksum_address(addr_of[at]), "topics": [topic]}

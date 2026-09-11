@@ -49,8 +49,9 @@ somebody watching FOMO has to read:
   rules — everything that reads one Robinhood Chain log has one home in `shared/robinhood.py`.
   Fetching does not: `01` asks for one thing at a time as events arrive and `02` batches a whole
   sweep, so their `rpc` and their lookups stay separate on purpose.
-- `maintenance/` — scripts that check this repository rather than read FOMO, unnumbered and run
-  the same way as the rest. None of them is needed to run a listener:
+- `maintenance/` — scripts that check this repository, or measure the market around it, rather
+  than read FOMO's own flow. Unnumbered, run the same way as the rest, and none of them is
+  needed to run a listener:
   - `verify_registry.py` — re-checks every claim in `registry.json`, which sits beside it,
     against both chains.
   - `event_inventory.py` — what each recorded contract actually emits over a block window, for
@@ -61,6 +62,11 @@ somebody watching FOMO has to read:
     charged for rows the other was never subscribed to.
   - `active_wallets.py` — mines `runs/` for the wallets that keep trading, so a test has a live
     address to point at. Touches no network.
+  - `relay_share.py` — how much of Relay's deposit volume is FOMO's, and who else deposits into
+    Relay. The odd one out here: it measures the market rather than checking the repository, and
+    it is the only script that reads a third chain (Relay's own, for the whole-protocol
+    denominator) and the only one with an offchain dependency (CoinGecko, for ETH/SOL/BTC).
+    Assets it cannot price are counted and reported unpriced, never folded in at a guess.
 
   Each one puts `scripts/` on `sys.path` before importing `shared/`. Ruff allows a bare
   `sys.path.insert(...)` ahead of the imports, so none of them needs a `noqa: E402` — compute
