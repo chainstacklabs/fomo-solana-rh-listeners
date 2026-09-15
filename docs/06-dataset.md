@@ -64,6 +64,68 @@ whose partner fell outside the run has no match; `00_listen_fomo.py` counts thos
 `key` is the dedup key. It is derived from the chain, not from the run, so the same trade recorded
 by two listeners carries the same `key`.
 
+## Counting volume
+
+`maintenance/volume.py` totals what these files record, in dollars, over a window, split by the
+chain each trade ran on:
+
+```bash
+uv run scripts/maintenance/volume.py 12
+```
+
+Every trade is counted once, on the leg that names its size in cash. A Solana swap names both its
+sides. A buy names its cash where that cash left — the `PAY` — and names its token on the other
+chain, so the amount is read from one leg and the chain from the other. A sell is readable end to
+end on Robinhood Chain: the token left the wallet and the proceeds went into Relay's depository in
+the same transaction. A crossing trade therefore lands on one chain and not both, and the payout
+that settles a sell on Solana is that same sell arriving a second later rather than more volume —
+it is reported as a settlement check under the table.
+
+| Row | What it holds |
+|---|---|
+| Solana | swaps that never left it |
+| Robinhood Chain | crossing trades both ways: buys delivered there, sells swapped there |
+| `chain unknown` | buys whose delivery was never seen, and buys paid out of Robinhood Chain |
+
+`chain unknown` is what the two chains read here cannot account for. A payment carries an order id
+and an amount and no destination, so the destination is the delivery on the far side — and only
+Robinhood Chain is watched for it. A payment with no delivery went to a chain nothing here
+subscribes to (FOMO also trades on Base and BNB) or its far leg fell outside the run, and cash
+deposited into Relay on Robinhood Chain never touches Solana at all. Both are real FOMO volume on
+an unknown chain, so they are counted and named rather than dropped. A listener on Base and BNB,
+keyed the same way, is what would shrink that row.
+
+Over the runs recorded on 2026-09-08 and 2026-09-09, 51% of Solana payments had their delivery seen
+on Robinhood Chain. Robinhood Chain's share is therefore a floor and `chain unknown`'s is a
+ceiling: every trade that leaves that row joins one of the two chains above it.
+
+One flow is outside the count altogether: a sell that ran on a chain this does not read — Base,
+BNB — and paid out to Solana. Its payout lands on Solana carrying the Relay order id, but nothing on
+Solana marks a payout as FOMO's. What marks a trade as FOMO's sits on the chain the trade ran on:
+the EIP-7702 delegation on Robinhood Chain, the co-signer on Solana. For a sell on Base that mark is
+on Base, so the order id has nothing to match against and the payout is indistinguishable from every
+other application Relay settles. It is a missing row rather than a mis-attributed one — no such sell
+lands on the wrong chain.
+
+Its size is bounded rather than known. Across the payout recordings held on 2026-09-15, payouts
+landing in wallets FOMO's co-signer has signed for ran at about $36,000 a minute, against $33,000 a
+minute of sells counted on Robinhood Chain — a single-digit share of sell volume, and an upper
+bound, since a wallet can use more than one application settling through Relay and the two rates
+come from different windows. A listener on Base and BNB keyed on FOMO's delegation there would
+count those sells rather than bound them, and shrink `chain unknown` at the same time.
+
+The settlement check under the table reads both ends of the same sells. Across the recordings held
+on 2026-09-15 the payout on Solana was 0.62% smaller than the deposit on Robinhood Chain, which is
+what Relay and the solver keep on a sell — measured off the two legs, not quoted.
+
+A stablecoin is worth a dollar and nothing else is priced, which values all but a per-mille of the
+rows. An ETH-denominated sell, a token-for-token swap, and an amount the chain would not decode are
+counted unpriced under the table rather than valued at a guess.
+
+A window is not coverage. A file holds only what its own run was listening to — minutes inside a
+window of hours — so the report prints the time actually watched beside the window asked for, and a
+window with no run in it is empty rather than zero.
+
 ## What the file is not
 
 Only `00_listen_fomo.py` records both chains, so only its files join without a merge across files.
@@ -81,4 +143,7 @@ repository re-reads a block range into this shape, and a file records only what 
 Read from the chains. The field list and the sentences are what `scripts/shared/feed.py` writes;
 the leg latency and the absence of duplicate ids were measured over 40,571 rows recorded by the
 listeners in this repository on 2026-09-09, and the shapes are the ones
-`maintenance/verify_registry.py` re-verified against both mainnets the same day.
+`maintenance/verify_registry.py` re-verified against both mainnets the same day. The share of
+payments whose delivery was seen on Robinhood Chain was measured on 2026-09-14 over those same
+recordings; what Relay keeps on a sell, and the bound on sells settled from other chains, on
+2026-09-15 over the sells and the payouts recorded on both chains.

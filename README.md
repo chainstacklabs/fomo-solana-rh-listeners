@@ -99,8 +99,9 @@ listeners be read side by side.
 [`09_split_bundle.py`](scripts/09_split_bundle.py) explain one trade, one wallet and one bundle
 instead of streaming. [`scripts/maintenance/`](scripts/maintenance) checks this repository against
 the chains, and
-[`maintenance/relay_share.py`](scripts/maintenance/relay_share.py) measures how much of Relay's
-deposit volume is FOMO's against every other application settling through it. None of them is
+[`maintenance/volume.py`](scripts/maintenance/volume.py) totals FOMO's own volume out of a
+recording, and [`maintenance/relay_share.py`](scripts/maintenance/relay_share.py) measures how much
+of Relay's deposit volume is FOMO's against every other application settling through it. None of them is
 needed to run a listener.
 
 ### What `00` subscribes to
