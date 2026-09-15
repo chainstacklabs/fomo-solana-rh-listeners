@@ -62,6 +62,10 @@ somebody watching FOMO has to read:
     charged for rows the other was never subscribed to.
   - `active_wallets.py` — mines `runs/` for the wallets that keep trading, so a test has a live
     address to point at. Touches no network.
+  - `volume.py` — FOMO's own volume over a window, out of `runs/`, counted from Solana's side so a
+    crossing trade is never counted on both chains, then regrouped by the chain the swap ran on.
+    Touches no network and prices nothing but stablecoins; what it cannot attribute is printed as
+    a count.
   - `relay_share.py` — how much of Relay's deposit volume is FOMO's, and who else deposits into
     Relay. The odd one out here: it measures the market rather than checking the repository, and
     it is the only script that reads a third chain (Relay's own, for the whole-protocol

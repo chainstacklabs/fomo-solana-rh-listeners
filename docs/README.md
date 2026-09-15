@@ -7,7 +7,7 @@
 | [03 — Tokens and liquidity](03-tokens-and-liquidity.md) | Where the catalog comes from, what gates trading, and what the liquidity behind it is made of |
 | [04 — Listening](04-listening.md) | Which contracts and accounts to subscribe to on each chain, and how to decode what arrives |
 | [05 — Relay](05-relay.md) | The cross-chain protocol FOMO runs on: order lifecycle, solvers, settlement chain, public APIs |
-| [06 — The recorded feed](06-dataset.md) | The JSONL every listener writes: the fields, the units, and how the two legs of a trade join |
+| [06 — The recorded feed](06-dataset.md) | The JSONL every listener writes: the fields, the units, how the two legs of a trade join, and how to total the volume |
 | [07 — Address book](07-addresses.md) | Every address, per chain and per layer |
 
 Working listeners are in [`../scripts/`](../scripts/); addresses and event topics in
