@@ -89,30 +89,30 @@ it is reported as a settlement check under the table.
 
 `chain unknown` is what the two chains read here cannot account for. A payment carries an order id
 and an amount and no destination, so the destination is the delivery on the far side — and only
-Robinhood Chain is watched for it. A payment with no delivery went to a chain nothing here
-subscribes to (FOMO also trades on Base and BNB) or its far leg fell outside the run, and cash
-deposited into Relay on Robinhood Chain never touches Solana at all. Both are real FOMO volume on
-an unknown chain, so they are counted and named rather than dropped. A listener on Base and BNB,
-keyed the same way, is what would shrink that row.
+Robinhood Chain is watched for it. A payment with no delivery went to one of the four chains
+nothing here subscribes to (the catalog also spans Base, Ethereum, BNB Smart Chain and Monad) or
+its far leg fell outside the run, and cash deposited into Relay on Robinhood Chain never touches
+Solana at all. Both are real FOMO volume on an unknown chain, so they are counted and named rather
+than dropped. A listener on those four chains, keyed the same way, is what would shrink that row.
 
 Over the runs recorded on 2026-09-08 and 2026-09-09, 51% of Solana payments had their delivery seen
 on Robinhood Chain. Robinhood Chain's share is therefore a floor and `chain unknown`'s is a
 ceiling: every trade that leaves that row joins one of the two chains above it.
 
 One flow is outside the count altogether: a sell that ran on a chain this does not read — Base,
-BNB — and paid out to Solana. Its payout lands on Solana carrying the Relay order id, but nothing on
-Solana marks a payout as FOMO's. What marks a trade as FOMO's sits on the chain the trade ran on:
-the EIP-7702 delegation on Robinhood Chain, the co-signer on Solana. For a sell on Base that mark is
-on Base, so the order id has nothing to match against and the payout is indistinguishable from every
-other application Relay settles. It is a missing row rather than a mis-attributed one — no such sell
-lands on the wrong chain.
+Ethereum, BNB Smart Chain or Monad — and paid out to Solana. Its payout lands on Solana carrying
+the Relay order id, but nothing on Solana marks a payout as FOMO's. What marks a trade as FOMO's
+sits on the chain the trade ran on: the EIP-7702 delegation on Robinhood Chain, the co-signer on
+Solana. For a sell on Base that mark is on Base, so the order id has nothing to match against and
+the payout is indistinguishable from every other application Relay settles. It is a missing row
+rather than a mis-attributed one — no such sell lands on the wrong chain.
 
 Its size is bounded rather than known. Across the payout recordings held on 2026-09-15, payouts
 landing in wallets FOMO's co-signer has signed for ran at about $36,000 a minute, against $33,000 a
 minute of sells counted on Robinhood Chain — a single-digit share of sell volume, and an upper
 bound, since a wallet can use more than one application settling through Relay and the two rates
-come from different windows. A listener on Base and BNB keyed on FOMO's delegation there would
-count those sells rather than bound them, and shrink `chain unknown` at the same time.
+come from different windows. A listener on the four unread chains, keyed on FOMO's marker there,
+would count those sells rather than bound them, and shrink `chain unknown` at the same time.
 
 The settlement check under the table reads both ends of the same sells. Across the recordings held
 on 2026-09-15 the payout on Solana was 0.62% smaller than the deposit on Robinhood Chain, which is

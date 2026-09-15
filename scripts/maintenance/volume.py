@@ -7,7 +7,7 @@ Every trade is counted once, on the leg that names its size in cash:
                          which the Relay order id on both legs proves
                    SELL  a token swapped on Robinhood Chain, proceeds handed to Relay
   chain unknown    PAY   cash left a chain and the delivery was never seen, so which chain
-                         ran the swap is unknown — FOMO also trades on Base and BNB
+                         ran the swap is unknown — the catalog spans four more chains
 
 A crossing trade has a leg on each chain and is counted on neither twice: a buy is counted
 where its cash left, a sell where its token was swapped, and the other leg of each is only
@@ -16,7 +16,8 @@ of volume — it is the same sell, arriving a second later — so it is reported
 settlement check underneath the table instead.
 
 One flow is outside the count entirely: a sell that ran on a chain this does not read —
-Base, BNB — and paid out to Solana. Its payout is on Solana and carries the order id, but
+Base, Ethereum, BNB Smart Chain, Monad — and paid out to Solana. Its payout is on Solana
+and carries the order id, but
 nothing on Solana says a payout is FOMO's. What marks a trade as FOMO's sits on the chain
 the trade ran on: the EIP-7702 delegation on Robinhood Chain, the co-signer on Solana. For
 a sell on Base that mark is on Base, so the order id has nothing here to match against and
@@ -27,8 +28,8 @@ Its size is bounded rather than known. Across the payout recordings, payouts lan
 wallets FOMO's co-signer has signed for ran at about $36,000 a minute against $33,000 a
 minute of sells counted on Robinhood Chain, so sells from other chains are a single-digit
 share of sell volume. That is an upper bound measured over different windows: a wallet can
-use more than one application settling through Relay. A listener on Base and BNB keyed on
-FOMO's delegation there is what would count them rather than bound them, and it would
+use more than one application settling through Relay. A listener on the four unread chains,
+keyed on FOMO's marker there, is what would count them rather than bound them, and it would
 shrink `chain unknown` from the other side at the same time.
 
 Volume is in dollars, and a dollar figure needs a price. The only price used here is that a
@@ -160,7 +161,7 @@ def count(rows):
         elif row.get("order_id") in delivered:
             add("Robinhood Chain", "buys — paid for on Solana, token delivered here", value)
         else:
-            add("chain unknown", "buys whose delivery was never seen: Base, BNB, or missed by the run", value)
+            add("chain unknown", "buys whose delivery was never seen: another chain, or missed by the run", value)
 
     # A sell is readable end to end on Robinhood Chain: the token left the wallet and the
     # proceeds went into Relay's depository in the same transaction. That is the sell's
@@ -240,7 +241,8 @@ def main():
     print("\nA trade that crosses chains is counted once, on the chain its swap ran on, so no")
     print("dollar above is counted twice. `chain unknown` is real FOMO volume that could not be")
     print("placed — most of it is Robinhood Chain, so that row is a ceiling and Robinhood a floor.")
-    print("\nOne flow is missing altogether: a sell that ran on Base or BNB and paid out to Solana.")
+    print("\nOne flow is missing altogether: a sell that ran on one of the four chains this does not")
+    print("read — Base, Ethereum, BNB Smart Chain, Monad — and paid out to Solana.")
     print("Nothing on Solana marks a payout as FOMO's, so it cannot be told from any other")
     print("application's. It is a single-digit share of sell volume — see the doc below.")
 
