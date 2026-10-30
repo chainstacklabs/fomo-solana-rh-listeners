@@ -29,6 +29,9 @@ TX_VERSION = 1
 CO_SIGNER = "AgmLJBMDCqWynYnQiPCuj9ewsNNsBJXyzoUhD9LJzN51"
 RELAY_DEPOSIT = "99vQwtBwYtrqqD9YSXbdum3KBdxPAVxYTaQ3cfnJSrN2"
 DEPOSIT_DISCRIMINATOR = bytes.fromhex("0b9c60da27a3b413")
+# The same deposit paid in native SOL: the same layout, and no mint among its accounts.
+# FOMO pays in USDC and never sends this one; only maintenance/relay_share.py reads it.
+NATIVE_DEPOSIT_DISCRIMINATOR = bytes.fromhex("0d9e0ddf5fd51c06")
 
 # The other direction. A sell executed on Robinhood Chain pays out here, and a solver
 # signs that transfer rather than FOMO, so the co-signer is not in it and no listener

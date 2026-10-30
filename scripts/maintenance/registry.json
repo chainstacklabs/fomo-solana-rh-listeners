@@ -700,6 +700,9 @@
       "address": "99vQwtBwYtrqqD9YSXbdum3KBdxPAVxYTaQ3cfnJSrN2",
       "what": "Relay deposit program. DepositToken instruction = 8-byte discriminator + u64 amount + 32-byte order id. No destination.",
       "discriminator": "0x0b9c60da27a3b413",
+      "nativeDiscriminator": "0x0d9e0ddf5fd51c06",
+      "nativeDeposit": "DepositNative, the same deposit paid in SOL: the same 48-byte layout, no mint account. Never sent with FOMO's co-signer (0 of 115 sampled).",
+      "verifiedAt": "2026-10-30",
       "orderIdOffset": "Instruction data is an 8-byte discriminator 0b9c60da27a3b413, a u64 amount little-endian, then the 32-byte order id at bytes 16..48. That id is what the fill on the other chain ends its calldata with."
     },
     "vaultAuthority": "7uTT8Xi5RWXzy7h9XL244GRgEycDYDhLjr3ZyNdXi8pZ",
