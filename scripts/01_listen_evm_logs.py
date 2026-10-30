@@ -74,6 +74,7 @@ from shared.evm import (
     order_from_calldata,
     quantity,
     span,
+    sponsored,
     trade_key,
     venues,
     where_of,
@@ -85,6 +86,9 @@ LOOKUP_TIMEOUT = aiohttp.ClientTimeout(total=3)
 # A busy log subscription sends frames past the 1 MiB default, which closes the
 # connection with a 1009 instead of delivering the message.
 MAX_FRAME_BYTES = 32 * 1024 * 1024
+# 00 opens every chain's socket at once beside Solana's full blocks, and a handshake that
+# would take a second alone can then wait past the client's default of ten.
+OPEN_TIMEOUT = 30
 
 
 # --------------------------------------------------------------------- asking the node
@@ -218,6 +222,8 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
     # Per transaction, and each entry carries its log index: a deposit is scoped to
     # the operation it sits in, never to the whole bundle.
     sold_in_tx, venue_in_tx, ops_in_tx = defaultdict(list), defaultdict(list), defaultdict(list)
+    # (transaction, log index) of every operation a paymaster paid for: another application's.
+    paid_for = set()
     async with aiohttp.ClientSession(timeout=LOOKUP_TIMEOUT) as http:
         # The lookups above, bound to this run's session and caches, and the four steps
         # that turn one log into one Trade. Everything past them is the transport: what
@@ -233,13 +239,15 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
         async def buyer_of(log, tx):
             """The wallet a fill delivered to, or None when it is not FOMO's to report.
 
-            A wallet with no delegation here is FOMO's when the caller claims the order.
+            A wallet with no delegation here is FOMO's when the caller claims the order —
+            only a plain address, though: the same fill also moves tokens into routers and
+            pools on the way, and a claimed order makes none of those a buyer.
             """
             buyer = address_in_topic(log, 2)
             if buyer == BURN or not wanted(watched, buyer):
                 return None, ""
             app = await owner_app(buyer, log["blockNumber"])
-            if is_fomo(app) or (claimed and claimed(await order_of(ask, orders, tx))):
+            if is_fomo(app) or (app == "eoa" and claimed and claimed(await order_of(ask, orders, tx))):
                 return buyer, app
             return None, ""
 
@@ -296,6 +304,11 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
             venue are scoped to the depositor's own operation rather than to the bundle.
             """
             start, end = span(ops_in_tx.get(tx, []), int(log["logIndex"], 16))
+            # An operation's own `UserOperationEvent` closes its span, so `end` is the
+            # depositor's operation, and a paymaster on it makes this another application's.
+            if (tx, end) in paid_for:
+                counts["deposits sponsored by a paymaster, so not FOMO's"] += 1
+                return
             went_out = sold_in_span(sold_in_tx.get(tx, []), user, start, end)
             if went_out is None:
                 counts["PAY"] += 1
@@ -328,7 +341,9 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
             ("swap", {"topics": [list(VENUES)]}),
         ]
 
-        async with websockets.connect(websocket, max_size=MAX_FRAME_BYTES, close_timeout=1) as socket:
+        async with websockets.connect(
+            websocket, max_size=MAX_FRAME_BYTES, open_timeout=OPEN_TIMEOUT, close_timeout=1
+        ) as socket:
             pending, subscriptions = {}, {}
             for i, (name, criteria) in enumerate(filters, start=1):
                 await socket.send(
@@ -420,6 +435,8 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
                         # just counted, because a deposit is classified by what moved inside
                         # the depositor's own span.
                         ops_in_tx[tx].append(int(log["logIndex"], 16))
+                        if sponsored(log):
+                            paid_for.add((tx, int(log["logIndex"], 16)))
                     elif kind == "swap":
                         venue_in_tx[tx].append((int(log["logIndex"], 16), VENUES[log["topics"][0]]))
                     elif kind == "sold":
@@ -439,6 +456,7 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
                         sold_in_tx.clear()
                         venue_in_tx.clear()
                         ops_in_tx.clear()
+                        paid_for.clear()
                         orders.clear()
 
                 release(everything=True)

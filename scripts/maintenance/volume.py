@@ -177,14 +177,20 @@ def count(rows):
             continue
         add(NAMES[row["chain"]], "sells — token swapped here, cash paid back to Solana", value)
 
-    # Cash deposited into Relay on an EVM chain never touches Solana, and nothing here
-    # follows where it lands, so it is a buy of unknown destination rather than that chain's.
+    # Cash deposited into Relay on an EVM chain is one of two things. Paid out on Solana as
+    # cash, it is money moving to where FOMO keeps the balance: no trade, so no volume, and
+    # counted beside the table. Delivered as a token on another EVM chain, it is a buy there.
+    moved = 0
     for row in on_evm("PAY"):
         value = dollars(row.get("gave"))
-        if value is None:
+        if row.get("order_id") in paid_out:
+            moved += 1
+        elif value is None:
             missing[UNPRICED] += 1
-            continue
-        add("chain unknown", "buys paid for on an EVM chain, delivered somewhere unwatched", value)
+        elif row.get("order_id") in landed:
+            add(landed[row["order_id"]], "buys — paid for on another EVM chain, token delivered here", value)
+        else:
+            add("chain unknown", "payments on an EVM chain whose other leg was never seen", value)
 
     # What Relay and the solver keep, read off the two ends of the same sells rather than
     # quoted from anywhere: what went into the depository against what came out on Solana.
@@ -197,7 +203,7 @@ def count(rows):
             into, out = into + before, out + after
     kept = (into - out) / into if into else None
 
-    return volume, missing, len(sold & paid_out), kept
+    return volume, missing, len(sold & paid_out), kept, moved
 
 
 def by_chain(volume, chain):
@@ -217,7 +223,7 @@ def main():
         return
     print(f"covered  {covered(rows) / 60:.1f} min of it was recorded — these totals are of that, not of the window")
 
-    volume, missing, settled, kept = count(rows)
+    volume, missing, settled, kept, moved = count(rows)
     total = sum(row["usd"] for row in volume.values())
     trades = sum(row["trades"] for row in volume.values())
 
@@ -250,6 +256,8 @@ def main():
     sells = sum(row["trades"] for (_, line), row in volume.items() if line.startswith("sells"))
     cut = f", for {kept * 100:.2f}% less than they deposited" if kept else ""
     print(f"\n{settled} of {sells} sells were also seen being paid out on Solana{cut}.")
+    if moved:
+        print(f"{moved} payments on EVM chains were cash moving to Solana, paid out there as cash: not volume.")
     if missing:
         print("\nNot priced, and so not in the totals above:")
         for label, n in missing.most_common():

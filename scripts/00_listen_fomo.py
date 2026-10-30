@@ -177,38 +177,49 @@ async def main():
             if held is payouts:
                 joins["Relay payouts for other applications"] += 1
 
-    def settles(sell, gap):
+    def settles(leg, gap):
+        """The line under a payout: what it settles, and when the other half went past.
+
+        A sell's payout is its proceeds. An EVM payment's payout is that same cash arriving
+        on Solana, where FOMO keeps the balance — money moving, not a trade.
+        """
+        if leg.kind == "PAY":
+            joins["cash moved to Solana"] += 1
+            return f"lands {feed.amount(leg.gave)} paid in by {feed.short(leg.who)}, seen {gap}"
         joins["sells settled on Solana"] += 1
-        return f"settles {feed.amount(sell.gave or sell.got)} sold by {feed.short(sell.who)}, seen {gap}"
+        return f"settles {feed.amount(leg.gave or leg.got)} sold by {feed.short(leg.who)}, seen {gap}"
 
     def run(name):
         chain = TRANSPORTS[name].chain
 
         def emit(trade):
             tail = ""
-            if trade.order_id and chain == "SOL" and trade.kind == "PAY":
+            outbound = chain != "SOL" and trade.kind in ("SELL", "PAY")
+            if trade.order_id and outbound and trade.order_id in payouts:
+                # The payout lands about a second after the deposit, and a stream at
+                # `processed` hears it before the deposit's block has been decoded. The
+                # payout was held for this deposit, so it prints now, under it.
+                payout, at = payouts.pop(trade.order_id)
+                show(trade, chain, "")
+                show(payout, "SOL", settles(trade, f"{time.time() - at:.1f}s later"))
+                return
+            if trade.order_id and trade.kind == "PAY":
+                # Paid on any chain: delivered as a token on an EVM chain, or, from an EVM
+                # chain, as cash on Solana.
                 remember(paid, trade)
             elif trade.order_id and chain != "SOL" and trade.kind == "SELL":
-                if trade.order_id not in payouts:
-                    remember(sold, trade)
-                else:
-                    # The payout lands about a second after the sell, and a stream at
-                    # `processed` hears it before the sell's block has been decoded. The
-                    # payout was held for this sell, so it prints now, under it.
-                    payout, at = payouts.pop(trade.order_id)
-                    show(trade, chain, "")
-                    show(payout, "SOL", settles(trade, f"{time.time() - at:.1f}s later"))
-                    return
+                remember(sold, trade)
             elif trade.kind == "FILL":
                 # This stream carries every application Relay settles on Solana, and a
-                # payout says nothing about which. Only one whose order id matches a sell
-                # seen here can be called FOMO's. One that arrives first is held for its
-                # sell, and whatever is still unmatched when it expires is counted.
-                if trade.order_id not in sold:
+                # payout says nothing about which. Only one whose order id matches a sell or
+                # a payment seen here can be called FOMO's. One that arrives first is held
+                # for it, and whatever is still unmatched when it expires is counted.
+                held = sold if trade.order_id in sold else paid if trade.order_id in paid else None
+                if held is None:
                     remember(payouts, trade)
                     return
-                sell, at = sold.pop(trade.order_id)
-                tail = settles(sell, f"{time.time() - at:.1f}s earlier")
+                leg, at = held.pop(trade.order_id)
+                tail = settles(leg, f"{time.time() - at:.1f}s earlier")
             elif trade.order_id and chain != "SOL" and trade.order_id in paid:
                 pay, at = paid.pop(trade.order_id)
                 joins["cross-chain trades seen whole"] += 1

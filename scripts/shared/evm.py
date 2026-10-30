@@ -36,7 +36,8 @@ class Chain(NamedTuple):
     block_seconds: float  # how far apart blocks are, which sets how long silence is allowed to last
 
 
-# Keyed by the name a transport is called after: `rh-logs`, `rh-blocks`, `rh-off`.
+# Keyed by the name a transport is called after: `rh-logs`, `rh-blocks`, `rh-off`. Each row
+# was earned by maintenance/probe_chain.py, and its cash read off FOMO's own deposits there.
 CHAINS = {
     "rh": Chain(
         code="RH",
@@ -46,6 +47,45 @@ CHAINS = {
         native="ETH",
         cash=("0x5fc5360d0400a0fd4f2af552add042d716f1d168",),  # USDG, six decimals
         block_seconds=0.1,
+    ),
+    "bsc": Chain(
+        code="BSC",
+        name="BNB Smart Chain",
+        variable="BSC",
+        chain_id=56,
+        native="BNB",
+        # USDT and USDC, both eighteen decimals here rather than six: read per token, never assumed.
+        cash=("0x55d398326f99059ff775485246999027b3197955", "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d"),
+        block_seconds=0.45,
+    ),
+    "base": Chain(
+        code="BASE",
+        name="Base",
+        variable="BASE",
+        chain_id=8453,
+        native="ETH",
+        cash=("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",),  # USDC
+        block_seconds=2.0,
+    ),
+    "eth": Chain(
+        code="ETH",
+        name="Ethereum",
+        variable="ETHEREUM",
+        chain_id=1,
+        native="ETH",
+        # USDC, USDT
+        cash=("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", "0xdac17f958d2ee523a2206206994597c13d831ec7"),
+        block_seconds=12.0,
+    ),
+    "monad": Chain(
+        code="MON",
+        name="Monad",
+        variable="MONAD",
+        chain_id=143,
+        native="MON",
+        # USDC, USDT0
+        cash=("0x754704bc059f8c67012fed69bc8a327a5aafb603", "0xe7cd86e13ac4309349f30b3435a9d337750fc82d"),
+        block_seconds=0.4,
     ),
 }
 
@@ -80,6 +120,10 @@ VENUES = {
     "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67": "UniV3",
     "0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83": "PancakeV3",
     "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822": "UniV2",
+    # PancakeSwap Infinity, on BNB Smart Chain: Uniswap V4's shape with a protocol fee added.
+    "0x04206ad2b7c0f463bff3dd4f33c5735b0f2957a351e4f79763a4fa9e775dd237": "PancakeInf",
+    # The Solidly pair shape, which Aerodrome's pools on Base emit.
+    "0xb3e2773606abfd36b5bd91394b3a54d1398336c65005baf7bf7a05efeffaf75b": "Solidly",
 }
 SYMBOL, DECIMALS = "0x95d89b41", "0x313ce567"  # symbol(), decimals()
 
@@ -119,6 +163,17 @@ def topic(log, index=0):
     raw = log["topics"][index]
     raw = raw if isinstance(raw, str) else raw.hex()
     return "0x" + raw.removeprefix("0x").rjust(64, "0")
+
+
+def sponsored(operation):
+    """Did a paymaster pay for this `UserOperationEvent`? Topic 3 is the paymaster.
+
+    FOMO's bundler absorbs the gas, so a FOMO operation names no paymaster. Its delegation
+    is the reference account deployed at one address on every chain, and on most of them
+    other applications delegate to it too; the ones seen sponsor their users' operations
+    through a paymaster. So a paymaster is what tells such a wallet's deposit from FOMO's.
+    """
+    return int(operation["topics"][3], 16) != 0
 
 
 def span(boundaries, index):

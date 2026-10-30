@@ -67,6 +67,7 @@ from shared.evm import (
     padded_topic,
     quantity,
     span,
+    sponsored,
     trade_key,
     venues,
     where_of,
@@ -79,6 +80,7 @@ BATCH = 50  # calls per request; a catch-up sweep asks for hundreds of things at
 BEHIND = ("unknown block", "header not found")  # how a backend refuses a block it lacks
 MAX_SWEEP_BLOCKS = 300  # if the listener falls behind, jump forward rather than queue up
 STALL = 30  # seconds without a head before the subscription is called dead, at the least
+OPEN_TIMEOUT = 30  # 00 opens every chain's socket at once, so a handshake can queue
 
 
 def result(reply):
@@ -293,7 +295,7 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
                     meta[checksum(a)] = (decode_string(bytes.fromhex(symbol[2:])), int(decimals, 16))
             return True
 
-        def emit_deposits(payments, app, sent, ops, swaps):
+        def emit_deposits(payments, app, sent, ops, swaps, paid_for):
             """A deposit is a sell when a token also left the same wallet, a payment when not.
 
             The deposit names the order it pays for either way, which is what joins it to
@@ -315,6 +317,11 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
                 paid = quantity(raw, decimals, symbol)
                 tx = log["transactionHash"]
                 start, end = span(ops.get(tx, []), int(log["logIndex"], 16))
+                # An operation's own `UserOperationEvent` closes its span, so `end` is the
+                # depositor's operation, and a paymaster on it makes this another application's.
+                if (tx, end) in paid_for:
+                    counts["deposits sponsored by a paymaster, so not FOMO's"] += 1
+                    continue
 
                 went_out = sold_in_span(sent, user, tx, start, end, here.cash)
                 if went_out is None:
@@ -349,7 +356,9 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
                 tx = log["transactionHash"]
                 if buyer == BURN or not wanted(buyer):
                     continue
-                if not mine(app[buyer]) and not (claimed and claimed(orders.get(tx, ""))):
+                # A claimed order makes a plain address the buyer, never a router or pool
+                # the same fill moved tokens through on the way.
+                if not mine(app[buyer]) and not (app[buyer] == "eoa" and claimed and claimed(orders.get(tx, ""))):
                     continue
                 symbol, decimals = meta[checksum(log["address"])]
                 counts["BUY"] += 1
@@ -383,6 +392,7 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
             # it with, because the ether one names no token and puts its fields earlier.
             payments = [(log, False) for log in deposit_logs] + [(log, True) for log in native_logs]
             ops, swaps = operation_boundaries(op_logs), swaps_by_transaction(swap_logs)
+            paid_for = {(log["transactionHash"], int(log["logIndex"], 16)) for log in op_logs if sponsored(log)}
 
             resolved = await resolve_wallets(payments, fill_logs, at)
             if resolved is None:
@@ -391,11 +401,11 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
             if not await resolve_tokens(payments, fill_logs, sent, at):
                 return False
 
-            emit_deposits(payments, app, sent, ops, swaps)
+            emit_deposits(payments, app, sent, ops, swaps, paid_for)
             emit_fills(fill_logs, app, swaps)
             return True
 
-        async with websockets.connect(websocket, close_timeout=1) as socket:
+        async with websockets.connect(websocket, open_timeout=OPEN_TIMEOUT, close_timeout=1) as socket:
             await socket.send(
                 json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_subscribe", "params": ["newHeads"]})
             )

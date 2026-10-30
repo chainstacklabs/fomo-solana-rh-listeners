@@ -20,11 +20,11 @@ So this reports four things off the chain itself:
   and deposits. A fill names its order id only in its calldata, so on a chain where Relay is
   busy every fill a listener has to join costs a transaction fetch.
 
-Known wallets are every Robinhood Chain wallet the listeners have recorded as FOMO's in
-`runs/`. With no recordings the comparisons are skipped and the run says so.
+Known wallets are every EVM wallet the listeners have recorded as FOMO's in `runs/`, on any
+chain. With no recordings the comparisons are skipped and the run says so.
 
     uv run scripts/maintenance/probe_chain.py <chain> [seconds] [wallets]   default 600, 300
-    chain: robinhood | base | bsc | ethereum | monad | elysium
+    chain: a key of shared/evm.py's CHAINS, or base | eth | monad | elysium
 """
 
 import json
@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared import env
 from shared.evm import (
+    CHAINS,
     DELEGATION,
     DEPOSIT,
     DEPOSITORY,
@@ -54,14 +55,10 @@ from shared.evm import (
     USEROP,
 )
 
-PREFIX = {
-    "robinhood": "ROBINHOOD",
-    "base": "BASE",
-    "bsc": "BSC",
-    "ethereum": "ETHEREUM",
-    "monad": "MONAD",
-    "elysium": "ELYSIUM",
-}
+# Every chain with a row in shared/evm.py, plus the ones that do not have one yet: probing
+# a chain is how it earns its row, so this cannot be limited to the table.
+PREFIX = {network: chain.variable for network, chain in CHAINS.items()}
+PREFIX |= {"base": "BASE", "eth": "ETHEREUM", "monad": "MONAD", "elysium": "ELYSIUM"}
 RUNS = Path(__file__).parent.parent / "runs"
 
 args = sys.argv[1:]
@@ -158,14 +155,14 @@ for path in RUNS.glob("*.jsonl"):
             row = json.loads(line)
         except ValueError:
             continue
-        if row.get("chain") == "RH" and row.get("app") == "fomo" and row.get("who", "").startswith("0x"):
+        if row.get("chain") != "SOL" and row.get("app") == "fomo" and row.get("who", "").startswith("0x"):
             known.add(row["who"].lower())
 if not known:
-    print("\nno FOMO wallets recorded in runs/: run a Robinhood Chain listener to compare against them")
+    print("\nno FOMO wallets recorded in runs/: run an EVM listener to compare against them")
 
 if known:
     picked = sorted(known)[:sample]
-    print(f"\n-- {len(picked)} of {len(known)} FOMO wallets recorded on Robinhood Chain, read here --")
+    print(f"\n-- {len(picked)} of {len(known)} FOMO wallets recorded on EVM chains, read here --")
     for kind, n in Counter(codes(picked).values()).most_common():
         print(f"  {n:5}  {kind}")
 
@@ -200,6 +197,18 @@ for log in operations:
 print("  operations by sender's code and bundler (0x4337… is the vanity prefix FOMO's fleet uses)")
 for kind in ("fomo delegation", "anything else"):
     print(f"    {kind:16} via 0x4337… {fleets[(kind, True)]:5}   via any other bundler {fleets[(kind, False)]:5}")
+
+# The paymaster is topic 3 of `UserOperationEvent`. FOMO's bundler absorbs the gas and its
+# operations name none; another application on the same delegation can be told apart by
+# the paymaster sponsoring it.
+paymasters = Counter(
+    "none" if int(log["topics"][3], 16) == 0 else "0x" + log["topics"][3][-40:][:10] + "…"
+    for log in operations
+    if sender_codes["0x" + log["topics"][2][-40:]] == "fomo delegation"
+)
+print("  operations from senders carrying the delegation, by paymaster")
+for paymaster, n in paymasters.most_common(6):
+    print(f"    {n:5}  {paymaster}")
 
 fills = logs({"topics": [TRANSFER, EXECUTOR_TOPICS]}, low, head)
 recipients = sorted({"0x" + log["topics"][2][-40:] for log in fills if len(log["topics"]) > 2})

@@ -47,11 +47,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared import transports
+from shared.evm import CHAINS
 from shared.transports import CHAIN_NAME, COMPARABLE, TRANSPORTS
 
-# Blocks are 0.1 s here and slots 0.4 s there, so both margins drop about three
-# seconds from each end of the common window rather than trusting its edges.
-MARGIN = {"Robinhood Chain": 30, "Solana": 8}
+# Each margin drops about three seconds' worth of blocks or slots from each end of the
+# common window rather than trusting its edges. Solana's slots are 0.4 s apart.
+MARGIN = {chain.name: max(1, round(3 / chain.block_seconds)) for chain in CHAINS.values()} | {"Solana": 8}
 
 
 def chain_of(name):
@@ -87,7 +88,7 @@ def report(chain, names, seen, heights):
 
     window = {n: {k for k in seen[n] if inside(k)} for n in names}
     union = set().union(*window.values())
-    unit = "blocks" if chain == "Robinhood Chain" else "slots"
+    unit = "slots" if chain == "Solana" else "blocks"
     print(f"\n{chain} — {len(union)} trades over {high - low + 1} {unit} every transport covered")
     print(f"{'':14}{'trades':>8}{'first':>8}{'p50 lag':>10}{'p90 lag':>10}{'missed':>8}")
     for n in names:
