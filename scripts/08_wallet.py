@@ -19,9 +19,9 @@ transaction rather than the wallet. To follow a Solana wallet, pass its base58 a
 filter to 00_listen_fomo.py or 04_listen_solana_blocks.py, and use 07_trace_trade.py to
 cross one trade between the chains.
 
-Both windows are answered whole at the default span, unlike the range reads warned about in
-docs/04-listening.md: over 50000 blocks one eth_getLogs returns the same logs as the same
-range split in two or in four.
+Both windows are read 10000 blocks per eth_getLogs, because an endpoint caps how many blocks
+one request may span and refuses a wider one outright. docs/04-listening.md covers the other
+way a range read goes wrong, a load-balanced backend answering it short.
 
 Reference: docs/01-how-it-works.md (The wallet), docs/04-listening.md (Telling FOMO apart from everything else).
 
@@ -68,6 +68,16 @@ if len(sys.argv) > 2 and not sys.argv[2].isdigit():
 span = int(sys.argv[2]) if len(sys.argv) > 2 else 50000
 head = w3.eth.block_number
 lo = head - span
+CHUNK = 10000  # blocks per eth_getLogs; wider ranges are refused by a capped endpoint
+
+
+def logs(criteria):
+    """Every log matching `criteria` over lo..head, asked for one CHUNK at a time."""
+    found = []
+    for start in range(lo, head + 1, CHUNK):
+        found += w3.eth.get_logs(criteria | {"fromBlock": start, "toBlock": min(start + CHUNK - 1, head)})
+    return found
+
 
 code = "0x" + w3.eth.get_code(who).hex().removeprefix("0x")
 print(f"address  {who}")
@@ -92,14 +102,7 @@ def erc20(address, field, kind):
 
 
 print(f"\n-- FOMO operations, blocks {lo}-{head} --")
-ops = w3.eth.get_logs(
-    {
-        "fromBlock": lo,
-        "toBlock": head,
-        "address": ENTRYPOINT,
-        "topics": [USEROP, None, "0x" + "0" * 24 + who[2:].lower()],
-    }
-)
+ops = logs({"address": ENTRYPOINT, "topics": [USEROP, None, "0x" + "0" * 24 + who[2:].lower()]})
 if not ops:
     print("  none in this window")
 for log in ops:
@@ -133,7 +136,7 @@ print(f"\n-- token movements, blocks {lo}-{head} --")
 padded = "0x" + "0" * 24 + who[2:].lower()
 moves = 0
 for label, topics in (("IN ", [TRANSFER, None, padded]), ("OUT", [TRANSFER, padded])):
-    for log in w3.eth.get_logs({"fromBlock": lo, "toBlock": head, "topics": topics}):
+    for log in logs({"topics": topics}):
         moves += 1
         decimals = erc20(log["address"], "decimals", "uint8")
         raw = int(log["data"].hex().replace("0x", "") or "0", 16)

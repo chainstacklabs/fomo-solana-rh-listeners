@@ -73,6 +73,17 @@
       "warning": "callRequests(bytes32) is ALWAYS false - ids are never consumed onchain."
     },
     "relayRouter": {
+      "address": "0x5567954cD026CEbFE486062cb75848e0f1c12E58",
+      "what": "What a solver's fill calls. Replaced relayRouterV1 in October 2026.",
+      "orderIdInCalldata": "A solver's fill is a call to this router whose calldata ends with the 32-byte order id from the deposit that paid for it on the other chain. Reading the last word is the whole cross-chain join, with no Relay API in the path. Only router calls carry it: a Transfer out of the executor inside a handleOps bundle is not a solver fill and its calldata ends with something else.",
+      "verifiedAt": "2026-10-30"
+    },
+    "relayExecutor": {
+      "address": "0x0729E2a4716d9f7dD17858d5d504426D228697f7",
+      "what": "Performs the swap and delivers tokens. Buy fills originate here, and a sell's token moves into it. Replaced relayExecutorV1 in October 2026.",
+      "verifiedAt": "2026-10-30"
+    },
+    "relayRouterV1": {
       "address": "0xCcC88a9d1B4ED6b0EABA998850414b24f1c315bE",
       "what": "Relay multicall entry. Sells approve this and call transferAndMulticall.",
       "owner": "0x463cB782c8dd0a1887b77336DfF74D60F006F56E",
@@ -80,15 +91,17 @@
         "arbitrum",
         "ethereum"
       ],
-      "orderIdInCalldata": "A solver's fill is a call to this router whose calldata ends with the 32-byte order id from the deposit that paid for it on the other chain. Reading the last word is the whole cross-chain join, with no Relay API in the path. Only router calls carry it: a Transfer out of the executor inside a handleOps bundle is not a solver fill and its calldata ends with something else."
+      "orderIdInCalldata": "A solver's fill is a call to this router whose calldata ends with the 32-byte order id from the deposit that paid for it on the other chain. Reading the last word is the whole cross-chain join, with no Relay API in the path. Only router calls carry it: a Transfer out of the executor inside a handleOps bundle is not a solver fill and its calldata ends with something else.",
+      "replaced": "FOMO's fills moved to relayRouter in October 2026. Every fill before the cut-over called this one, and it still carries other Relay traffic."
     },
-    "relayExecutor": {
+    "relayExecutorV1": {
       "address": "0xb92fe925DC43a0ECdE6c8b1a2709c170Ec4fFf4f",
       "what": "Performs the swap and delivers tokens. Buy fills originate here.",
       "alsoOn": [
         "arbitrum",
         "ethereum"
-      ]
+      ],
+      "replaced": "FOMO's token movements moved to relayExecutor in October 2026. Every trade before the cut-over moved through this one, and it still executes other solver calls."
     },
     "solverTreasury": {
       "address": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
@@ -282,7 +295,7 @@
       "note": "keccak of the signature matches topic0 exactly."
     },
     "0x93485dcd31a905e3ffd7b012abe3438fa8fa77f98ddc9f50e879d3fa7ccdc324": {
-      "at": "relayExecutor",
+      "at": "relayExecutorV1",
       "abi": "SolverCallExecuted(address,bytes,uint256)",
       "shape": "(address target, bytes callData, uint256 value)",
       "use": "each inner call the executor makes; the highest-volume Relay event",

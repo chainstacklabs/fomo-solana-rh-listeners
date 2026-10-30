@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared import env
 from shared.robinhood import FOMO_CODE
+from shared.solana import TX_VERSION
 
 w3 = Web3(Web3.HTTPProvider(env.endpoint("ROBINHOOD_MAINNET_HTTPS")))
 # Read up front, so a missing variable stops the run before it prints half a report.
@@ -118,26 +119,32 @@ for topic, abi in signatures.items():
     check(f"{abi[:52]}", computed == topic, f"hashes to {computed[:18]}…")
 
 print("\n-- every registered event actually fires --")
-addr_of = {
-    "entryPoint": reg["accountLayer"]["entryPoint"]["address"],
-    "relayDepository": reg["intentLayer"]["relayDepository"]["address"],
-    "relayRouter": reg["intentLayer"]["relayRouter"]["address"],
-    "relayExecutor": reg["intentLayer"]["relayExecutor"]["address"],
+contracts = {"entryPoint": reg["accountLayer"]["entryPoint"]} | {
+    name: reg["intentLayer"][name]
+    for name in ("relayDepository", "relayRouter", "relayExecutor", "relayRouterV1", "relayExecutorV1")
 }
+# Some events fire every few blocks and some a few times an hour, so a fixed window reports
+# the rare ones as gone. The search walks back one chunk at a time, small enough for a
+# load-balanced endpoint to answer whole, and stops at the first occurrence.
+CHUNK, CHUNKS = 3000, 100
 head = w3.eth.block_number
 for topic, meta in reg["events"].items():
     at = meta["at"].split(",")[0].strip()
-    if at not in addr_of:
+    if at not in contracts:
         # Two different reasons to skip, and calling both "any-address" hides one: an
         # event recorded against another chain is not checkable here at all, while a
         # Transfer has no single address to look it up at.
         why = f"on {meta['chain']}, not this chain" if meta.get("chain") else "any-address event"
         print(f"  SKIP  {meta.get('abi', '?')[:44]} ({why})")
         continue
-    logs = w3.eth.get_logs(
-        {"fromBlock": head - 3000, "toBlock": head, "address": Web3.to_checksum_address(addr_of[at]), "topics": [topic]}
-    )
-    check(f"{at}: {meta.get('abi', '?')[:46]}", len(logs) > 0, "no occurrences in 3000 blocks")
+    address = Web3.to_checksum_address(contracts[at]["address"])
+    found = False
+    for k in range(CHUNKS):
+        window = {"fromBlock": head - (k + 1) * CHUNK + 1, "toBlock": head - k * CHUNK}
+        if w3.eth.get_logs(window | {"address": address, "topics": [topic]}):
+            found = True
+            break
+    check(f"{at}: {meta.get('abi', '?')[:46]}", found, f"no occurrences in {CHUNK * CHUNKS} blocks")
 
 print("\n-- FOMO wallet fingerprint discriminates --")
 recorded = reg["accountLayer"]["fomoWalletFingerprint"]["test"].split("== ")[1]
@@ -182,7 +189,9 @@ else:
     payouts = solana("getSignaturesForAddress", [settlement["solver"], {"limit": 20}]) or []
     memos = 0
     for signature in [s["signature"] for s in payouts[:8]]:
-        tx = solana("getTransaction", [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}])
+        tx = solana(
+            "getTransaction", [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": TX_VERSION}]
+        )
         if not tx:
             continue
         programs = {i.get("programId") for i in tx["transaction"]["message"]["instructions"]}

@@ -19,9 +19,12 @@ from web3 import Web3
 CHAIN_ID = 4663
 ENTRYPOINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
 DEPOSITORY = "0x4cD00E387622C35bDDB9b4c962C136462338BC31"
-EXECUTOR = "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f"
-EXECUTOR_TOPIC = "0x" + "0" * 24 + EXECUTOR[2:]
-ROUTER = "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be"  # Relay's multicall entry; solvers fill through it
+# Relay's executor moves the tokens and its router is what a solver's fill calls. Relay
+# replaced both in October 2026 and the two pairs overlapped while it moved over, so both
+# are read: the current pair first, then the one every earlier trade went through.
+EXECUTORS = ("0x0729e2a4716d9f7dd17858d5d504426d228697f7", "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f")
+EXECUTOR_TOPICS = ["0x" + "0" * 24 + executor[2:] for executor in EXECUTORS]
+ROUTERS = ("0x5567954cd026cebfe486062cb75848e0f1c12e58", "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be")
 CASH = "0x5fc5360d0400a0fd4f2af552add042d716f1d168"
 BURN = "0x0000000000000000000000000000000000000000"
 
@@ -170,7 +173,7 @@ def order_from_calldata(info):
     router call, which is every transaction that is not a fill. `info` is an
     `eth_getTransactionByHash` result.
     """
-    if not info or (info.get("to") or "").lower() != ROUTER:
+    if not info or (info.get("to") or "").lower() not in ROUTERS:
         return ""
     calldata = info["input"][2:]
     return "0x" + calldata[-64:] if len(calldata) >= 64 else ""
