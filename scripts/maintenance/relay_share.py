@@ -43,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import base58
 from shared.env import endpoint
-from shared.robinhood import DELEGATION, DEPOSIT, DEPOSITORY, FOMO_CODE, NATIVE_DEPOSIT
+from shared.evm import DELEGATION, DEPOSIT, DEPOSITORY, FOMO_CODE, NATIVE_DEPOSIT
 from shared.solana import (
     CO_SIGNER,
     DEPOSIT_DISCRIMINATOR,

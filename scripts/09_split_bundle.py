@@ -11,16 +11,17 @@ see only that user's slice.
 
 Reference: docs/04-listening.md (Reading a bundle).
 
-    uv run scripts/09_split_bundle.py <tx hash> [address]
+    uv run scripts/09_split_bundle.py <chain> <tx hash> [address]
 """
 
 import contextlib
 import sys
 
 from eth_abi import decode as abi_decode
-from shared import env
-from shared.robinhood import (
+from shared import cli, env
+from shared.evm import (
     BEFORE_EXECUTION,
+    CHAINS,
     DEPOSIT,
     TRANSFER,
     USEROP,
@@ -31,7 +32,8 @@ from shared.robinhood import (
 )
 from web3 import Web3
 
-w3 = Web3(Web3.HTTPProvider(env.endpoint("ROBINHOOD_MAINNET_HTTPS")))
+here = CHAINS[cli.evm_chain()]
+w3 = Web3(Web3.HTTPProvider(env.endpoint(f"{here.variable}_MAINNET_HTTPS")))
 
 
 if len(sys.argv) < 2:

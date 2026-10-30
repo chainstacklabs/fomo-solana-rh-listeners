@@ -1,22 +1,55 @@
-"""What Robinhood Chain is made of, and the decoding that needs no network.
+"""What FOMO's EVM chains are made of, and the decoding that needs no network.
 
-Addresses, topics and the ABI slicing that reads them. Everything here is either a fact
-about the chain or a pure function over bytes, so it can be read in one sitting and changed
-in one place. Nothing here makes a request: a listener's own plumbing stays in the listener,
-because how 01 and 02 fetch differs and hiding that behind a shared layer would make both
-harder to follow, not easier.
+FOMO runs the same way on every EVM chain it trades on: an ERC-4337 operation from a wallet
+carrying one EIP-7702 delegation, paid into and filled out of Relay's contracts, which Relay
+deploys at the same addresses everywhere. So the contracts, the topics and the ABI slicing
+that reads them are written once, here, and what genuinely differs between chains — the
+endpoint, the native asset, the cash a trade passes through — is one row of `CHAINS`.
+
+Everything here is either a fact about a chain or a pure function over bytes, so it can be
+read in one sitting and changed in one place. Nothing here makes a request: a listener's own
+plumbing stays in the listener, because how 01 and 02 fetch differs and hiding that behind a
+shared layer would make both harder to follow, not easier.
 
 `maintenance/registry.json` is the verified record of these values and
-`maintenance/verify_registry.py` checks it against the live chain. This module is the copy
-the scripts import; when the two disagree, the chain decides.
+`maintenance/verify_registry.py` checks it against the live chain;
+`maintenance/probe_chain.py` is how a chain earns its row. This module is the copy the
+scripts import; when the two disagree, the chain decides.
 
 Reference: docs/07-addresses.md, docs/04-listening.md (Event surface).
 """
 
-# --- who is who -------------------------------------------------------------
+from typing import NamedTuple
+
 from web3 import Web3
 
-CHAIN_ID = 4663
+
+class Chain(NamedTuple):
+    """One EVM chain FOMO trades on: what a listener needs to know that the contracts do not say."""
+
+    code: str  # the column a row is printed under: see shared/feed.py
+    name: str  # what the chain is called in a sentence
+    variable: str  # the prefix of its two endpoints in .env, as <variable>_MAINNET_WSS and _HTTPS
+    chain_id: int
+    native: str  # what a native deposit is paid in; 18 decimals on every one of these chains
+    cash: tuple[str, ...]  # the quote tokens a sell is paid out of, lowercased: never the thing sold
+    block_seconds: float  # how far apart blocks are, which sets how long silence is allowed to last
+
+
+# Keyed by the name a transport is called after: `rh-logs`, `rh-blocks`, `rh-off`.
+CHAINS = {
+    "rh": Chain(
+        code="RH",
+        name="Robinhood Chain",
+        variable="ROBINHOOD",
+        chain_id=4663,
+        native="ETH",
+        cash=("0x5fc5360d0400a0fd4f2af552add042d716f1d168",),  # USDG, six decimals
+        block_seconds=0.1,
+    ),
+}
+
+# --- who is who, the same on every chain above -------------------------------
 ENTRYPOINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
 DEPOSITORY = "0x4cD00E387622C35bDDB9b4c962C136462338BC31"
 # Relay's executor moves the tokens and its router is what a solver's fill calls. Relay
@@ -25,7 +58,6 @@ DEPOSITORY = "0x4cD00E387622C35bDDB9b4c962C136462338BC31"
 EXECUTORS = ("0x0729e2a4716d9f7dd17858d5d504426d228697f7", "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f")
 EXECUTOR_TOPICS = ["0x" + "0" * 24 + executor[2:] for executor in EXECUTORS]
 ROUTERS = ("0x5567954cd026cebfe486062cb75848e0f1c12e58", "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be")
-CASH = "0x5fc5360d0400a0fd4f2af552add042d716f1d168"
 BURN = "0x0000000000000000000000000000000000000000"
 
 # A FOMO wallet is an ordinary address carrying one EIP-7702 delegation, and the

@@ -39,7 +39,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared import env
-from shared.robinhood import (
+from shared.evm import (
     DELEGATION,
     DEPOSIT,
     DEPOSITORY,

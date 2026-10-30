@@ -1,4 +1,4 @@
-"""One wallet's past on Robinhood Chain: is it FOMO's, and what has it done?
+"""One wallet's past on an EVM chain: is it FOMO's, and what has it done?
 
 The listeners only show what is happening now. This looks backwards at a single address
 and answers three questions about it: what kind of account it is, which FOMO operations it
@@ -13,7 +13,9 @@ operation arrives as `executeBatch`, the wrapper the wallet runs, so that is wha
 operation column names; pass a transaction to 09_split_bundle.py to see the calls inside
 one, and which logs in a shared bundle belong to this wallet.
 
-Robinhood Chain only, so the address is a 0x one. There is no Solana equivalent and there
+One EVM chain at a time, named first, so the address is a 0x one. A FOMO wallet has the
+same address on every EVM chain, so the same address can be read on each in turn. There is
+no Solana equivalent and there
 cannot be: nothing marks a Solana account as FOMO's, because the co-signer identifies the
 transaction rather than the wallet. To follow a Solana wallet, pass its base58 address as a
 filter to 00_listen_fomo.py or 04_listen_solana_blocks.py, and use 07_trace_trade.py to
@@ -25,19 +27,20 @@ way a range read goes wrong, a load-balanced backend answering it short.
 
 Reference: docs/01-how-it-works.md (The wallet), docs/04-listening.md (Telling FOMO apart from everything else).
 
-    uv run scripts/08_wallet.py <0x address> [blocks]     default 50000 blocks (~1.4 h)
+    uv run scripts/08_wallet.py <chain> <0x address> [blocks]     default 50000 blocks
 """
 
 import datetime
 import sys
 
 from eth_abi import decode as abi_decode
-from shared import env
+from shared import cli, env
 from shared.cli import wallet_shaped
-from shared.robinhood import DELEGATION, ENTRYPOINT, FOMO_CODE, TRANSFER, USEROP
+from shared.evm import CHAINS, DELEGATION, ENTRYPOINT, FOMO_CODE, TRANSFER, USEROP
 from web3 import Web3
 
-w3 = Web3(Web3.HTTPProvider(env.endpoint("ROBINHOOD_MAINNET_HTTPS")))
+here = CHAINS[cli.evm_chain()]
+w3 = Web3(Web3.HTTPProvider(env.endpoint(f"{here.variable}_MAINNET_HTTPS")))
 
 
 SELECTORS = {
@@ -54,7 +57,7 @@ if not sys.argv[1].startswith("0x"):
     # A base58 address here is somebody looking for the Solana half of a wallet, which
     # this script cannot answer. Say where to go rather than failing inside web3.
     sys.exit(
-        f"{sys.argv[1]} is not a Robinhood Chain address, and this script reads only that chain.\n"
+        f"{sys.argv[1]} is not an EVM address, and this script reads only EVM chains.\n"
         "For a Solana wallet, pass it to 00_listen_fomo.py or 04_listen_solana_blocks.py as a filter."
     )
 # A 0x that is not 40 hex digits is a typo, and web3 answers one with a traceback out of
@@ -81,7 +84,7 @@ def logs(criteria):
 
 code = "0x" + w3.eth.get_code(who).hex().removeprefix("0x")
 print(f"address  {who}")
-print(f"balance  {w3.eth.get_balance(who) / 1e18:.9f} ETH")
+print(f"balance  {w3.eth.get_balance(who) / 1e18:.9f} {here.native}")
 if code == "0x":
     print("type     plain address, no code")
 elif code == FOMO_CODE:

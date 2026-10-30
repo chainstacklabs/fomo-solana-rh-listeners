@@ -36,7 +36,6 @@ Reference: docs/04-listening.md (Transports).
 """
 
 import asyncio
-import importlib
 import statistics
 import sys
 import time
@@ -157,7 +156,7 @@ async def main():
         return emit
 
     deadline = time.time() + seconds
-    jobs = [importlib.import_module(TRANSPORTS[n].module).listen(deadline, set(), emitter(n), Counter()) for n in names]
+    jobs = [transports.listener(n)(deadline, set(), emitter(n), Counter()) for n in names]
     # A transport that dies takes its own measurement down and nothing else: the others
     # keep decoding, and what it managed before it stopped is still in the table.
     outcomes = await asyncio.gather(*jobs, return_exceptions=True)

@@ -10,7 +10,7 @@ the live chain and prints PASS or FAIL per claim: the account, intent and aggreg
 contracts still have code, the EOAs among them are still EOAs, every venue factory and the
 V4 pool manager and both non-AMM venues are alive, USDG really is 6 decimals, each
 registered event still fires, and the wallet fingerprint still separates a FOMO wallet from
-a lookalike and still matches the one shared/robinhood.py hands the listeners. The market
+a lookalike and still matches the one shared/evm.py hands the listeners. The market
 survey and offchain sections are descriptive and are not checked. Set SOLANA_MAINNET_HTTPS
 and the Solana entries are checked too: the co-signer is still busy and every router FOMO
 uses is still an executable program.
@@ -38,7 +38,7 @@ from web3 import Web3
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared import env
-from shared.robinhood import FOMO_CODE
+from shared.evm import FOMO_CODE
 from shared.solana import TX_VERSION
 
 w3 = Web3(Web3.HTTPProvider(env.endpoint("ROBINHOOD_MAINNET_HTTPS")))
@@ -149,10 +149,10 @@ for topic, meta in reg["events"].items():
 print("\n-- FOMO wallet fingerprint discriminates --")
 recorded = reg["accountLayer"]["fomoWalletFingerprint"]["test"].split("== ")[1]
 fp = bytes.fromhex(recorded.removeprefix("0x"))
-# The listeners test wallets against shared/robinhood.py, not against this file. If the
+# The listeners test wallets against shared/evm.py, not against this file. If the
 # two drift apart every listener silently stops recognising a FOMO wallet, so the drift
 # is worth a check of its own.
-check(f"shared/robinhood.py agrees with the recorded fingerprint {recorded[:14]}…", recorded == FOMO_CODE)
+check(f"shared/evm.py agrees with the recorded fingerprint {recorded[:14]}…", recorded == FOMO_CODE)
 check("a known FOMO wallet matches the fingerprint", w3.eth.get_code(Web3.to_checksum_address(KNOWN_FOMO)) == fp)
 duster = "0x3F48ad1d49643ED1FCec16cc44Bd6bE8Dbfe48eE"
 check("duster wallet does NOT match", w3.eth.get_code(Web3.to_checksum_address(duster)) != fp)

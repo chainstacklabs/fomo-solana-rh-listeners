@@ -3,43 +3,36 @@
 Every trade is counted once, on the leg that names its size in cash:
 
   Solana           SWAP  a trade that stayed on Solana, both sides named
-  Robinhood Chain  PAY   cash left Solana and the token was delivered on Robinhood Chain,
-                         which the Relay order id on both legs proves
-                   SELL  a token swapped on Robinhood Chain, proceeds handed to Relay
+  each EVM chain   PAY   cash left Solana and the token was delivered on that chain, which
+                         the Relay order id on both legs proves
+                   SELL  a token swapped on that chain, proceeds handed to Relay
   chain unknown    PAY   cash left a chain and the delivery was never seen, so which chain
-                         ran the swap is unknown — the catalog spans four more chains
+                         ran the swap is unknown
+
+The EVM chains are the rows of shared/evm.py's `CHAINS`, so a chain added there is counted
+here without editing this script.
 
 A crossing trade has a leg on each chain and is counted on neither twice: a buy is counted
 where its cash left, a sell where its token was swapped, and the other leg of each is only
-ever read to attribute it. The payout that settles a sell on Solana is not a fourth source
+ever read to attribute it. The payout that settles a sell on Solana is not another source
 of volume — it is the same sell, arriving a second later — so it is reported as a
 settlement check underneath the table instead.
 
-One flow is outside the count entirely: a sell that ran on a chain this does not read —
-Base, Ethereum, BNB Smart Chain, Monad — and paid out to Solana. Its payout is on Solana
-and carries the order id, but
-nothing on Solana says a payout is FOMO's. What marks a trade as FOMO's sits on the chain
-the trade ran on: the EIP-7702 delegation on Robinhood Chain, the co-signer on Solana. For
-a sell on Base that mark is on Base, so the order id has nothing here to match against and
-`00` drops the payout along with every other application's. That is a missing row and not a
-mis-attributed one — no such sell is counted on the wrong chain.
-
-Its size is bounded rather than known. Across the payout recordings, payouts landing in
-wallets FOMO's co-signer has signed for ran at about $36,000 a minute against $33,000 a
-minute of sells counted on Robinhood Chain, so sells from other chains are a single-digit
-share of sell volume. That is an upper bound measured over different windows: a wallet can
-use more than one application settling through Relay. A listener on the four unread chains,
-keyed on FOMO's marker there, is what would count them rather than bound them, and it would
-shrink `chain unknown` from the other side at the same time.
+`chain unknown` is what the recordings cannot place: a payment whose delivery fell outside
+the run, or landed on a chain the run was not listening to. A sell made on a chain the run
+was not listening to is missing altogether rather than unknown: what marks a trade as
+FOMO's sits on the chain the trade ran on, so its payout on Solana has nothing to match
+against and `00` counts it with every other application's. Neither lands on the wrong chain.
 
 Volume is in dollars, and a dollar figure needs a price. The only price used here is that a
 stablecoin is worth a dollar, which covers all but a per-mille of these rows because FOMO
-prices everything in USDC and USDG. Anything else — an ETH-denominated sell, an amount the
-chain would not decode — is counted unpriced rather than valued at a guess, and this script
-makes no request to anything.
+prices everything in stablecoins. Anything else — a native-asset sell, an amount the chain
+would not decode — is counted unpriced rather than valued at a guess, and this script makes
+no request to anything. Amounts are already scaled by the decimals each token reported, so
+an 18-decimal stablecoin is read the same as a 6-decimal one.
 
 Reads `scripts/runs/00_listen_fomo-*.jsonl` and nothing else: only that listener records
-both chains, so only its files hold both legs of a trade. Recordings older than the `at`
+every chain, so only its files hold both legs of a trade. Recordings older than the `at`
 field are skipped, because a row with no wall clock cannot be put in a window.
 
     uv run scripts/maintenance/volume.py [hours]      default 12
@@ -51,14 +44,21 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+# This runs from scripts/maintenance/ but imports shared/ from scripts/, so the path goes
+# on before shared/ is imported.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from shared.evm import CHAINS as EVM
+
 RUNS = Path(__file__).parent.parent / "runs"
 
 # A stablecoin is worth a dollar. Every other asset is counted and reported unpriced.
 STABLES = {"USDC", "USDG", "USDT"}
-UNPRICED = "amounts in no stablecoin — an ETH-denominated trade, or a `?` the chain would not decode"
+UNPRICED = "amounts in no stablecoin — a native-asset trade, or a `?` the chain would not decode"
 
-# The order the table reads in. The unknown row is last: it is the residue of the two above.
-CHAINS = ("Solana", "Robinhood Chain", "chain unknown")
+# The order the table reads in. The unknown row is last: it is the residue of the rest.
+NAMES = {chain.code: chain.name for chain in EVM.values()}
+CHAINS = ("Solana", *NAMES.values(), "chain unknown")
 
 
 def dollars(amount):
@@ -134,8 +134,12 @@ def count(rows):
     def order_ids(kept):
         return {row["order_id"] for row in kept if row.get("order_id")}
 
-    delivered = order_ids(of_kind("RH", "BUY"))  # buys FOMO's wallets received on Robinhood Chain
-    sold = order_ids(of_kind("RH", "SELL"))  # sells FOMO's wallets made there
+    def on_evm(kind):
+        return [row for code in NAMES for row in of_kind(code, kind)]
+
+    # Which EVM chain each delivered order landed on: the payment never says, the fill does.
+    landed = {row["order_id"]: NAMES[row["chain"]] for row in on_evm("BUY") if row.get("order_id")}
+    sold = order_ids(on_evm("SELL"))  # sells FOMO's wallets made on any EVM chain
     paid_out = order_ids(of_kind("SOL", "FILL"))  # sells Relay was seen settling on Solana
 
     volume, missing = {}, Counter()
@@ -158,33 +162,33 @@ def count(rows):
         value = dollars(row.get("gave"))
         if value is None:
             missing[UNPRICED] += 1
-        elif row.get("order_id") in delivered:
-            add("Robinhood Chain", "buys — paid for on Solana, token delivered here", value)
+        elif row.get("order_id") in landed:
+            add(landed[row["order_id"]], "buys — paid for on Solana, token delivered here", value)
         else:
             add("chain unknown", "buys whose delivery was never seen: another chain, or missed by the run", value)
 
-    # A sell is readable end to end on Robinhood Chain: the token left the wallet and the
+    # A sell is readable end to end on its EVM chain: the token left the wallet and the
     # proceeds went into Relay's depository in the same transaction. That is the sell's
     # size, a second before Relay takes its cut and pays the rest out on Solana.
-    for row in of_kind("RH", "SELL"):
+    for row in on_evm("SELL"):
         value = dollars(row.get("got"))
         if value is None:
             missing[UNPRICED] += 1
             continue
-        add("Robinhood Chain", "sells — token swapped here, cash paid back to Solana", value)
+        add(NAMES[row["chain"]], "sells — token swapped here, cash paid back to Solana", value)
 
-    # Cash deposited into Relay on Robinhood Chain never touches Solana, and nothing here
-    # watches where it lands, so it is a buy of unknown destination rather than an RH trade.
-    for row in of_kind("RH", "PAY"):
+    # Cash deposited into Relay on an EVM chain never touches Solana, and nothing here
+    # follows where it lands, so it is a buy of unknown destination rather than that chain's.
+    for row in on_evm("PAY"):
         value = dollars(row.get("gave"))
         if value is None:
             missing[UNPRICED] += 1
             continue
-        add("chain unknown", "buys paid for on Robinhood Chain, delivered somewhere unwatched", value)
+        add("chain unknown", "buys paid for on an EVM chain, delivered somewhere unwatched", value)
 
     # What Relay and the solver keep, read off the two ends of the same sells rather than
     # quoted from anywhere: what went into the depository against what came out on Solana.
-    deposited = {row["order_id"]: dollars(row.get("got")) for row in of_kind("RH", "SELL")}
+    deposited = {row["order_id"]: dollars(row.get("got")) for row in on_evm("SELL")}
     received = {row["order_id"]: dollars(row.get("got")) for row in of_kind("SOL", "FILL")}
     into, out = 0.0, 0.0
     for order in sold & paid_out:
@@ -240,15 +244,10 @@ def main():
 
     print("\nA trade that crosses chains is counted once, on the chain its swap ran on, so no")
     print("dollar above is counted twice. `chain unknown` is real FOMO volume that could not be")
-    print("placed — most of it is Robinhood Chain, so that row is a ceiling and Robinhood a floor.")
-    print("\nOne flow is missing altogether: a sell that ran on one of the four chains this does not")
-    print("read — Base, Ethereum, BNB Smart Chain, Monad — and paid out to Solana.")
-    print("Nothing on Solana marks a payout as FOMO's, so it cannot be told from any other")
-    print("application's. It is a single-digit share of sell volume — see the doc below.")
+    print("placed — a delivery outside the run, or on a chain the run was not listening to — so")
+    print("that row is a ceiling and every chain above it a floor.")
 
-    sells = volume.get(("Robinhood Chain", "sells — token swapped here, cash paid back to Solana"), {"trades": 0})[
-        "trades"
-    ]
+    sells = sum(row["trades"] for (_, line), row in volume.items() if line.startswith("sells"))
     cut = f", for {kept * 100:.2f}% less than they deposited" if kept else ""
     print(f"\n{settled} of {sells} sells were also seen being paid out on Solana{cut}.")
     if missing:
