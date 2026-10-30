@@ -20,8 +20,9 @@ liquidity, volume and price change over several windows, holder and transaction 
 the price is read from, social links, an origin block naming the launchpad and its bonding-curve
 progress, and safety flags including mint and freeze authorities.
 
-The catalog spans six chains: Solana, Robinhood Chain, Base, Ethereum, BNB Smart Chain and Monad. The app
-tells the server which of them its build understands; the server decides everything else.
+The catalog spans six chains: Solana, Robinhood Chain, Base, Ethereum, BNB Smart Chain and Monad,
+and every one of them carries FOMO trades. The app tells the server which of them its build
+understands; the server decides everything else.
 
 ## Discovery is a server decision
 
@@ -68,6 +69,16 @@ has eighteen. Every pool on Robinhood Chain therefore carries a decimals mismatc
 and lookalike tokens with eighteen decimals exist. Read `decimals()` per address and resolve tokens
 by address only.
 
+### BNB Smart Chain, Base, Ethereum and Monad
+
+The same shape as Robinhood Chain, with each chain's own stablecoins as the quote: USDT and USDC on
+BNB Smart Chain and on Ethereum, USDC on Base, USDC and USDT0 on Monad. On BNB Smart Chain both
+carry **eighteen decimals**, where the same symbols carry six everywhere else, so a scale guessed
+from the symbol is wrong by twelve orders of magnitude there. The venues are the chains' own:
+PancakeSwap's V3 and Infinity pools beside Uniswap V2 and V4 on BNB Smart Chain, Uniswap V3 and V4
+with Aerodrome's pools on Base, Uniswap on Ethereum. The addresses are in
+[`07-addresses.md`](07-addresses.md).
+
 ### Solana
 
 **USDC is the quote asset**, at six decimals, and the liquidity is the ordinary Solana ecosystem,
@@ -79,10 +90,14 @@ characters of one.
 
 ## Where this comes from
 
-Read from the chains. The venues, both quote assets and their decimals, from a pool census on
-2026-08-31 recorded in [`registry.json`](../scripts/maintenance/registry.json) and re-verified
-2026-09-09 by
-[`maintenance/verify_registry.py`](../scripts/maintenance/verify_registry.py).
+Read from the chains. Robinhood Chain's venues and quote assets, from a pool census on 2026-08-31
+recorded in [`registry.json`](../scripts/maintenance/registry.json) and re-verified 2026-09-09 by
+[`maintenance/verify_registry.py`](../scripts/maintenance/verify_registry.py). The quote assets on
+the four other EVM chains, from the tokens wallets carrying FOMO's delegation deposited into Relay
+on 2026-10-30, with symbol and decimals re-read by the verifier the same day; their venues, from the
+swap event shapes inside FOMO's fills and deposits on those chains the same day. Aerodrome's pools
+are named by the factory they report: 14 of 15 Solidly-shaped pools swapping on Base on 2026-10-30
+answered `factory()` with Aerodrome's.
 
 From FOMO's app. The catalog, the discovery feeds, the tradability gate, the launchpad fields and
 the perpetuals listing — iOS v1.87.1, captured 2026-08-31, and free to change on any build.

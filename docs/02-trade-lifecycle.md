@@ -16,6 +16,7 @@ should come from.
 | **Cross-chain sell** | The user's own operation swaps the token on its chain and hands the proceeds to Relay; the payout follows on the cash chain |
 | **Same-chain trade** | One ordinary swap on that chain's venues. Relay plays no part |
 | **Withdrawal** | A deposit on one chain, then a solver pays an external address on another |
+| **Moving cash to Solana** | A deposit of a stablecoin on an EVM chain, then a solver pays the same cash out on Solana, where the balance lives |
 
 A cross-chain trade is two transactions on two chains joined by an identifier. Money leaves on one
 side; something arrives on the other. No transaction on either chain holds both halves.
@@ -43,9 +44,9 @@ balance produces no user transaction at all until the solver's fill appears.
 ## Selling
 
 The swap half of a sell runs inside the user's own transaction, so it is legible in one receipt on
-Robinhood Chain. The cash half is not on that chain at all. The operation approves Relay's router,
-routes through Relay's executor into the pools, and hands the proceeds to Relay's depository. One
-receipt carries the pool, the direction and both amounts.
+the EVM chain the token lives on. The cash half is not on that chain at all. The operation approves
+Relay's router, routes through Relay's executor into the pools, and hands the proceeds to Relay's
+depository. One receipt carries the pool, the direction and both amounts.
 
 The proceeds never return to the wallet, which ends the trade holding nothing. They become a credit
 with Relay, paid out on Solana a second or two later by a solver. That payout is a separate
@@ -59,9 +60,13 @@ When the cash and the token are already on the same chain, nothing has to cross.
 order id exists, and the trade is a single swap through an aggregator with the proceeds landing in
 the user's own wallet.
 
-This path exists on Solana. It does not exist on Robinhood Chain: cash lives on Solana, so a
-Robinhood Chain token is always bought from the other side. Every FOMO swap on that chain is
+This path exists on Solana. It does not exist on any EVM chain: cash lives on Solana, so a token
+issued on an EVM chain is always bought from the other side. Every FOMO swap on an EVM chain is
 therefore either a solver filling someone's buy or a user's own sell, never a same-chain trade.
+
+Stablecoins do move on the EVM chains outside a trade. A FOMO wallet that received cash there
+deposits it into Relay, and a solver pays the same amount out on Solana a second later. That is the
+balance being consolidated, not a trade, and it carries no token.
 
 The catalog keys tokens by address and chain, so the same ticker on two chains is two different
 assets. The user picks a listing, not a symbol.
@@ -74,20 +79,20 @@ is inside the price the swap executes at.
 
 | Cost | Who pays it | Where it shows up |
 |---|---|---|
-| Robinhood Chain gas | FOMO's bundler | nowhere on the user's account: the operation declares a zero fee, `actualGasCost` is zero and the paymaster field is the zero address on every FOMO operation |
+| EVM gas | FOMO's bundler | nowhere on the user's account: the operation declares a zero fee, `actualGasCost` is zero and the paymaster field is the zero address on every FOMO operation, on every EVM chain |
 | Solana fee and rent | FOMO's co-signer | fee payer on every transaction FOMO sends, and it funds the 0.00186 SOL of rent when a trade has to create the user's USDC token account — two orders of magnitude above the fee itself |
 | the fill's gas | the solver | its own transaction, on the destination chain |
-| FOMO's fee | the user | a basis-point tier chosen per trade by FOMO's server and priced into the quote. No fee-collector contract, no identifiable recipient on either chain |
+| FOMO's fee | the user | a basis-point tier chosen per trade by FOMO's server and priced into the quote. No fee-collector contract, no identifiable recipient on any chain |
 | Relay's fee | the user | flat rather than proportional: a fixed charge per movement plus the destination chain's gas, priced into the quote the same way. A wallet's first Solana payout costs more, because it creates the token account |
 | the pool's fee | the user | inside the executed price, and set per pool rather than by FOMO. Read it from the last word of a Uniswap V4 `Swap` log, or from `fee()` on a V3 pool |
 
-FOMO wallets hold no ether and are never asked for any, so nothing on Robinhood Chain can charge
-them. The pool fee is the one a reader is most likely to assume is constant and is not: across 150
-swaps inside FOMO bundles, V3 pools charged between 0.004% and 1%, and V4's fee field ran from zero
-to 6%.
+FOMO wallets hold none of an EVM chain's native asset and are never asked for any, so nothing on
+those chains can charge them. The pool fee is the one a reader is most likely to assume is constant
+and is not: across 150 swaps inside FOMO bundles on Robinhood Chain, V3 pools charged between
+0.004% and 1%, and V4's fee field ran from zero to 6%.
 
 Small trades are therefore fee-dominated, which is why the app enforces a minimum trade size. That
-minimum arrives in the quote, from FOMO's server, and is not readable from either chain.
+minimum arrives in the quote, from FOMO's server, and is not readable from any chain.
 
 ## Slippage
 
@@ -99,15 +104,19 @@ Relay applies its own, much wider tolerance to the crossing leg.
 
 ## Watching this happen
 
-[`07_trace_trade.py`](../scripts/07_trace_trade.py) takes either leg — a Robinhood Chain
-transaction or a Solana signature — or the order id itself, and prints both legs of one trade.
+[`07_trace_trade.py`](../scripts/07_trace_trade.py) takes an EVM chain and either leg — a
+transaction on that chain or a Solana signature — or the order id itself, and prints both legs of
+one trade.
 [`04-listening.md`](04-listening.md) covers the live feeds.
 
 ## Where this comes from
 
-Read from the chains. Robinhood Chain and Solana mainnet, over Chainstack nodes, with the scripts
-in [`../scripts/`](../scripts/). The fee payers, the zero `actualGasCost` and the zero paymaster
-field were read again on 2026-09-08. The token-account rent is
+Read from the chains. Robinhood Chain, BNB Smart Chain, Base, Ethereum, Monad and Solana mainnet,
+over Chainstack nodes, with the scripts in [`../scripts/`](../scripts/). The fee payers, the zero
+`actualGasCost` and the zero paymaster field were read on Robinhood Chain on 2026-09-08, and the
+zero paymaster on FOMO's operations on every EVM chain on 2026-10-30. Cash moving to Solana was
+observed on 2026-10-30, when a five-minute recording of every chain joined 19 stablecoin deposits
+on EVM chains to Solana payouts carrying the same order id. The token-account rent is
 `getMinimumBalanceForRentExemption(165)` = 1,855,569 lamports, read 2026-09-09. The pool fees are
 from the 150 swaps inside FOMO bundles over 300 Robinhood Chain blocks on 2026-09-09: 104 Uniswap
 V4, 44 V3, 2 Pancake V3, with V4's fee field read from the last word of each `Swap` log and the V3
@@ -115,4 +124,4 @@ tiers from `fee()` on each pool.
 
 From FOMO's app. The quote, the route, the fee tier, the slippage tolerance and the minimum trade
 size — iOS v1.87.1, captured 2026-08-31. The server picks each of them per trade, and none of them
-is readable from either chain.
+is readable from any chain.

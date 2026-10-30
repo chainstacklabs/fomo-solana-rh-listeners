@@ -29,8 +29,9 @@ somebody watching FOMO has to read:
 
 - `shared/` — modules the scripts import rather than run:
   - `feed.py` — the `Trade` every listener emits, and how a row is printed and recorded.
-  - `robinhood.py`, `solana.py` — one per chain: its addresses, topics and program ids, plus the
-    decoding that needs no network. Nothing here makes a request.
+  - `evm.py`, `solana.py` — one per kind of chain: addresses, topics and program ids, plus the
+    decoding that needs no network. Nothing here makes a request. `evm.py` holds `CHAINS`, one
+    row per EVM chain FOMO trades on: what differs between them, since their contracts do not.
   - `env.py` — `endpoint("NAME")` returns it or exits naming it; `optional("NAME")` for the
     callers that decide for themselves, which is how a listener reading its endpoint at module
     level stays safe to import.
@@ -46,26 +47,30 @@ somebody watching FOMO has to read:
     because `00` validates the same arguments.
 
   A constant or a pure function used by two scripts belongs here, and that includes the decoding
-  rules — everything that reads one Robinhood Chain log has one home in `shared/robinhood.py`.
-  Fetching does not: `01` asks for one thing at a time as events arrive and `02` batches a whole
-  sweep, so their `rpc` and their lookups stay separate on purpose.
+  rules — everything that reads one EVM log has one home in `shared/evm.py`. Fetching does not:
+  `01` asks for one thing at a time as events arrive and `02` batches a whole sweep, so their `rpc`
+  and their lookups stay separate on purpose.
 - `maintenance/` — scripts that check this repository, or measure the market around it, rather
   than read FOMO's own flow. Unnumbered, run the same way as the rest, and none of them is
   needed to run a listener:
   - `verify_registry.py` — re-checks every claim in `registry.json`, which sits beside it,
-    against both chains.
+    against every chain whose endpoint is set.
+  - `probe_chain.py` — whether FOMO runs on an EVM chain the way the listeners expect: the
+    contracts present, recorded FOMO wallets carrying the delegation there, and who else shares
+    it, by bundler and by paymaster. Run it before a chain gets a row in `CHAINS`.
   - `event_inventory.py` — what each recorded contract actually emits over a block window, for
     when the registry has gone stale and the question is what replaced it.
-  - `compare_listeners.py` — the four FOMO-keyed transports at once on one event loop, reporting
-    coverage and lag against each other. Imports them through `transports.py` rather than copying
-    them. The payout pair stays out: it groups by chain, and the two Solana subjects would each be
-    charged for rows the other was never subscribed to.
+  - `compare_listeners.py` — the FOMO-keyed transports at once on one event loop, all of them or
+    the ones named, reporting coverage and lag against the others on the same chain. Imports them
+    through `transports.py` rather than copying them. The payout pair stays out: it groups by
+    chain, and the two Solana subjects would each be charged for rows the other was never
+    subscribed to.
   - `active_wallets.py` — mines `runs/` for the wallets that keep trading, so a test has a live
     address to point at. Touches no network.
-  - `volume.py` — FOMO's own volume over a window, out of `runs/`, counted from Solana's side so a
-    crossing trade is never counted on both chains, then regrouped by the chain the swap ran on.
-    Touches no network and prices nothing but stablecoins; what it cannot attribute is printed as
-    a count.
+  - `volume.py` — FOMO's own volume over a window, out of `runs/`, counted once per trade so a
+    crossing trade is never counted on both of its chains, then grouped by the chain the swap ran
+    on. Cash moving to Solana is counted beside the table, never as volume. Touches no network and
+    prices nothing but stablecoins; what it cannot attribute is printed as a count.
   - `relay_share.py` — how much of Relay's deposit volume is FOMO's, and who else deposits into
     Relay. The odd one out here: it measures the market rather than checking the repository, and
     it is the only script that reads a third chain (Relay's own, for the whole-protocol
@@ -83,7 +88,7 @@ somebody watching FOMO has to read:
 ## What the listeners share
 
 `00_listen_fomo.py` imports all six listeners rather than copying them — `01` through `06` — and
-`maintenance/compare_listeners.py` imports the four that carry FOMO's own trades. Those are the
+`maintenance/compare_listeners.py` imports the ones that carry FOMO's own trades. Those are the
 only imports of one script by another.
 
 That makes `01` through `06` the single home of each transport's decoding, so a rule changes in one
@@ -93,6 +98,10 @@ file and is tested in one file. Each of them exposes:
 async def listen(deadline, watched, emit, counts)
 ```
 
+`01` and `02` also take `chain`, a key of `CHAINS`, and `claimed`, a test on an order id;
+`shared/transports.py`'s `listener(name)` binds the chain, so every caller starts every transport
+with the same four arguments.
+
 - `deadline` is an absolute `time.time()` value.
 - `watched` is a set of wallet addresses, empty for all of them.
 - `emit(trade)` is called once per trade with a `Trade`, a NamedTuple, so a new field costs nothing
@@ -100,14 +109,18 @@ async def listen(deadline, watched, emit, counts)
   the chain and to hang a join on the row below, and `compare_listeners` passes one of its own that
   records arrival times instead of printing.
 - `Trade.key` identifies one trade across transports: the signature on Solana, and **transaction
-  hash plus log index** on Robinhood Chain, because one `handleOps` bundle carries several users and
+  hash plus log index** on an EVM chain, because one `handleOps` bundle carries several users and
   the hash alone merges their trades.
 - `Trade.order_id` is the Relay order id when the trade has one. It is the same value on both
-  chains, so holding Solana payments by it and matching the last word of each Robinhood fill joins
-  the two legs with no third party. `00_listen_fomo.py` does that live.
+  of a trade's chains, so holding Solana payments by it and matching the last word of each EVM
+  fill joins the two legs with no third party. `00_listen_fomo.py` does that live, and passes the
+  ids it holds to the EVM listeners as `claimed`, so a delivery to a plain address — a wallet
+  that has never operated on that chain — is still reported.
 - `Trade.app` is the application behind the wallet, read from its EIP-7702 implementation. FOMO is
-  one of several on Robinhood Chain, so that value is the filter as well as the label: a listener
-  emits the wallets carrying FOMO's delegation and nobody else's.
+  one of several tenants of Relay, so that value is the filter as well as the label: a listener
+  emits the wallets carrying FOMO's delegation and nobody else's. Off Robinhood Chain other
+  applications share the delegation, and a deposit from an operation a paymaster paid for is
+  theirs: it is counted, never emitted.
 - `kind` is `BUY`, `SELL`, `PAY`, `SWAP`, `IN`, `OUT`, or `OTHER`. `OTHER` means this transport
   received the trade but cannot classify it, which is not the same as disagreeing about it;
   `maintenance/compare_listeners.py` counts it as seen and leaves it out of the disagreement
@@ -142,8 +155,8 @@ bottom and any one step lifted out of it:
   functions that turn one log into one `Trade` — `02` names its sweep's phases too, so `handle()`
   reads as the four round trips and two decoding passes it is.
 
-A step that needs no network and no run state goes to `shared/robinhood.py` instead, where the
-other Robinhood Chain scripts can reach it.
+A step that needs no network and no run state goes to `shared/evm.py` instead, where the other
+EVM scripts can reach it.
 
 `05` and `06` read a subject FOMO does not sign: Relay's payout solver, whose transfers no filter
 on FOMO can see. Their rows cannot be attributed to FOMO on their own — `00` names a payout only

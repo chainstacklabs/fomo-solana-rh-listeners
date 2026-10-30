@@ -1,7 +1,7 @@
 # robinhood-fomo
 
-Reverse-engineer how the **FOMO** trading app works onchain, on **Robinhood Chain** and on
-**Solana**. Two outputs, interleaved rather than sequential: a technical reference in `docs/`, and
+Reverse-engineer how the **FOMO** trading app works onchain, on **Solana** and on every EVM chain
+it trades on — **Robinhood Chain, BNB Smart Chain, Base, Ethereum and Monad**. Two outputs, interleaved rather than sequential: a technical reference in `docs/`, and
 standalone listeners and tools in `scripts/`. Every architectural claim is proven by a script that
 hits a node.
 
@@ -36,9 +36,12 @@ hits a node.
   itself, where two transports read the same fact out of genuinely different wire formats and
   hiding the difference costs more readability than the duplication does. `shared/` still makes no
   requests: it can build the subscription, never send it.
-- **Listeners subscribe, never poll.** Push transports only: log and head subscriptions on
-  Robinhood Chain, gRPC or `blockSubscribe` on Solana. Where a chain offers more than one
-  transport, there is one script per transport rather than a flag. Endpoints come from `.env`, and
+- **Listeners subscribe, never poll.** Push transports only: log and head subscriptions on the
+  EVM chains, gRPC or `blockSubscribe` on Solana. Where a chain offers more than one transport,
+  there is one script per transport rather than a flag. The EVM chains share one script per
+  transport, the chain named as its first argument, because their contracts are the same; what
+  differs per chain is one row of `scripts/shared/evm.py`'s `CHAINS`, earned by
+  `scripts/maintenance/probe_chain.py`. Endpoints come from `.env`, and
   a script started without its endpoint exits naming the variable to set.
 - **Python + uv.** `uv run scripts/<name>.py`, and `uv sync` after any dependency change.
   Functional style, no classes unless they earn it. Solana scripts hit the JSON-RPC directly with
