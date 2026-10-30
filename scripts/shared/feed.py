@@ -2,13 +2,14 @@
 
 The kinds a listener emits are defined here, once, because five listeners that disagree
 about what a word means are five listeners you cannot read side by side. Which chain
-produces which is a fact about how FOMO uses that chain: Solana holds the cash, Robinhood
-Chain holds the tokens, and only Robinhood Chain names a token at the moment it is bought.
+produces which is a fact about how FOMO uses that chain: Solana holds the cash, the EVM
+chains hold the tokens, and only the EVM chain a token lives on names it at the moment it
+is bought.
 
-  BUY      RH     a token arrived from Relay's executor. The first moment that token is
+  BUY      EVM    a token arrived from Relay's executor. The first moment that token is
                   public, and the only event that ever names it
-  SELL     RH     a token left a wallet and the proceeds landed in Relay's depository
-  PAY      both   cash into Relay: somebody is buying something. The deposit carries an
+  SELL     EVM    a token left a wallet and the proceeds landed in Relay's depository
+  PAY      any    cash into Relay: somebody is buying something. The deposit carries an
                   amount and an order id and never the token, so it gives you the size
                   and the wallet, never what was bought
   SWAP     SOL    a trade that stayed on one chain: the wallet gave one asset and
@@ -22,10 +23,10 @@ Chain holds the tokens, and only Robinhood Chain names a token at the moment it 
                   signature rather than dropped, because a feed that quietly omits a
                   transaction it received looks complete when it is not
 
-`shared/solana.py` decides which of the Solana kinds a transaction is; on Robinhood Chain
+`shared/solana.py` decides which of the Solana kinds a transaction is; on an EVM chain
 each kind has its own log shape and the listener that reads it decides.
 
-A complete row is 240 columns wide. A wallet is 44 characters, a Robinhood transaction 66,
+A complete row is 240 columns wide. A wallet is 44 characters, an EVM transaction 66,
 a Solana signature 88, and padding every field to its worst case spends another 60 on air.
 So each row wrapped, at a different point every time, and a burst of trades arrived as a
 wall. The rule that produced those rows still holds — a row you cannot look up or copy is a
@@ -65,7 +66,7 @@ class Trade(NamedTuple):
     who: str = ""  # the wallet, in full
     app: str = ""  # the application behind the wallet, from its delegation
     note: str = ""  # the venue or router the trade ran through
-    where: str = ""  # the block on Robinhood Chain, the slot on Solana
+    where: str = ""  # the block on an EVM chain, the slot on Solana
     key: str = ""  # what identifies this trade on this chain
     order_id: str = ""  # the Relay order id, the key that joins a trade's two legs
 
@@ -86,19 +87,20 @@ REPEAT = 40  # rows between reprints of the header, so a burst cannot scroll it 
 # what the eye looks for first, and leaves the width for what has to be read.
 KINDS = {"BUY": "32", "SELL": "31", "SWAP": "36", "PAY": "33", "IN": "32", "OUT": "31", "OTHER": "2"}
 KINDS["FILL"] = "32"
-CHAINS = {"RH": "35", "SOL": "34"}
+CHAINS = {"RH": "35", "BSC": "33", "BASE": "36", "ETH": "37", "MON": "95", "SOL": "34"}
+CHAIN_WIDTH = max(map(len, CHAINS))  # the widest code, so "BASE" is never cut to "BA…"
 DIM = "2"
 NOMINAL = {"gave": 16, "got": 19, "who": 11, "note": 10, "where": 10, "key": 15}
 # What each column of the header means, printed under it once when a listener starts.
 MEANING = {
     "time": "seconds since this listener started",
-    "ch": "RH for Robinhood Chain, SOL for Solana",
+    "ch": "the chain: SOL for Solana, the others in shared/evm.py",
     "kind": "BUY SELL SWAP PAY FILL IN OUT OTHER",
     "gave": "what left the wallet",
     "got": "what arrived, big figures scaled: 1.752M",
     "wallet": "the user; … means cut, the sidecar has it whole",
     "venue": "the pool or router the trade ran through",
-    "where": "block on Robinhood Chain, slot on Solana",
+    "where": "block on an EVM chain, slot on Solana",
     "trade": "transaction#log, or the Solana signature",
 }
 JOINED = "this trade's other leg, and how long ago it went past"
@@ -175,7 +177,7 @@ def widths(chains):
     """Nominal columns, given up in the order that costs least when the terminal is narrow."""
     columns = dict(NOMINAL)
     room = shutil.get_terminal_size().columns if ISATTY else PIPED
-    overhead = SEPARATORS + (4 if chains else 0)
+    overhead = SEPARATORS + (CHAIN_WIDTH + 1 if chains else 0)
     # A venue and a block number shorten harmlessly, so they go first. An amount does
     # not: cut it far enough and the symbol goes with it, and the symbol is the half
     # worth reading. Below the last floor the row wraps, always at the same place.
@@ -215,7 +217,7 @@ def header(columns, chains):
         row(
             chains,
             f"{'time':>7}",
-            fit("ch", 3),
+            fit("ch", CHAIN_WIDTH),
             fit("kind", 5),
             fit("gave", columns["gave"], ">"),
             "  ",
@@ -262,7 +264,7 @@ def start(script, *chains):
             row(
                 both,
                 paint(f"+{now - began:.1f}s".rjust(7), DIM),
-                paint(fit(chain, 3), CHAINS.get(chain, "")),
+                paint(fit(chain, CHAIN_WIDTH), CHAINS.get(chain, "")),
                 paint(fit(trade.kind, 5), KINDS.get(trade.kind, "")),
                 fit(amount(trade.gave), columns["gave"], ">"),
                 "->" if trade.gave and trade.got else "  ",

@@ -11,15 +11,19 @@ vantage point gives, and the decoding rules that keep a listener honest.
 | Where the swap runs | inside the user's own operation | inside a solver's transaction, later | inside the user's own transaction |
 | What the first event says | token, venue, both amounts | that someone paid, and how much | token, venue, both amounts |
 | When the token is named | at execution | only at the fill | at execution |
-| Who signs the last leg | a Relay solver, on Solana | a Relay solver, on Robinhood Chain | the user |
+| Who signs the last leg | a Relay solver, on Solana | a Relay solver, on the EVM chain | the user |
 | What that leg costs to see | a second subscription, on the solver | nothing — it runs through a contract | nothing |
 
 Relay fills on the destination chain, and FOMO trades in both directions, so every crossing trade
-has a solver's leg. The two are not equally visible. A buy fills on Robinhood Chain through Relay's
+has a solver's leg. The two are not equally visible. A buy fills on its EVM chain through Relay's
 executor, a fixed contract emitting a `Transfer`, so watching the contract catches it. A sell fills
 on Solana as a bare `spl-token` transfer with a memo — no program, no event — and the only account
-that identifies it is the solver's own. On Robinhood Chain the subscriptions are on contracts and
-see both sides; on Solana the subscription is on a signer and sees only what FOMO signs.
+that identifies it is the solver's own. On an EVM chain the subscriptions are on contracts and see
+both sides; on Solana the subscription is on a signer and sees only what FOMO signs.
+
+Every EVM chain FOMO trades on — Robinhood Chain, BNB Smart Chain, Base, Ethereum and Monad — runs
+the same contracts at the same addresses, so everything below under **EVM chains** holds on each of
+them, and one listener reads any of them with the chain named.
 
 The deposit that pays for a crossing buy carries an amount and an opaque identifier. Nothing public
 names the token before the fill — not the origin chain, and not
@@ -29,10 +33,10 @@ order id: it is one swap, and it names both sides as it executes.
 
 ## Telling FOMO apart from everything else
 
-FOMO is one tenant of these contracts rather than the owner of them. On Robinhood Chain the
-delegation designator is `0xef0100` followed by the implementation a wallet runs, and that
-implementation names the application, so the delegation is a label and not only a test. Apply the
-test on every feed, depositors included — how much of a feed is FOMO varies widely:
+FOMO is one tenant of these contracts rather than the owner of them. The delegation designator is
+`0xef0100` followed by the implementation a wallet runs, and on Robinhood Chain that implementation
+names the application, so the delegation is a label and not only a test. Apply the test on every
+feed, depositors included — on Robinhood Chain, how much of a feed is FOMO varies widely:
 
 | Feed | FOMO's share, counted by address | counted by event |
 |---|---|---|
@@ -44,29 +48,48 @@ The two columns differ most where it matters most. A count of fill *recipients* 
 count of fill *events* says a small minority, because the executor's own routing contracts appear
 on both sides of the hops that reach the user. Say which one a number is.
 
-The listeners apply the test to every trade they emit and record the application they read beside
-it. One buy per wallet escapes it: the delegation is set by the wallet's first operation, so a new
-user's first buy lands before there is any code to read.
+The implementation FOMO's wallets run is the reference `Simple7702Account`, deployed at one address
+on every chain, so the delegation names FOMO only where nobody else uses it. On the other four
+chains other applications do, and their operations come through the same bundler fleet. What
+separates them is who pays: FOMO's bundler absorbs the gas and a FOMO operation names no paymaster,
+while the other applications sponsor theirs through one, named in topic 3 of
+`UserOperationEvent`. A deposit is FOMO's when its depositor carries the delegation **and** the
+depositor's own operation names no paymaster. A deposit from a sponsored operation is another
+application's, counted and left out of the feed.
+
+A fill has no operation, so no paymaster to read: a buy is FOMO's by the recipient's delegation.
+One buy per wallet per chain escapes that: the delegation is set by the wallet's first operation
+on a chain, so a token delivered to a wallet that has never operated there lands at a plain
+address. Such a buy is FOMO's when its order id matches a payment FOMO's co-signer signed on Solana,
+which [`00_listen_fomo.py`](../scripts/00_listen_fomo.py) checks while it runs — only for a plain
+address, never for the routers and pools the same fill moves tokens through. A fill to a plain
+address that no FOMO payment claims is counted, since it is either another application's user or a
+payment the Solana leg has not decoded yet.
+
+Both tests describe the applications seen sharing the delegation, which all use a paymaster. One
+that pays its own gas on the same delegation would pass them, and none has been seen.
 
 | Chain | Marker |
 |---|---|
 | Robinhood Chain | the wallet's code is the EIP-7702 delegation every FOMO wallet carries |
+| BNB Smart Chain, Base, Ethereum, Monad | the same delegation, and no paymaster on the depositor's operation; for a buy, the delegation, or the order id of a FOMO payment on Solana |
 | Solana | the co-signer that signs and pays for every FOMO transaction |
 | Relay's API | the `referrer` field on each request record |
 | Relay's chain | none — solvers and assets are visible, the application behind an order is not |
 
 > [!WARNING]
-> Do not filter by bundler address. The fleet rotates and any allowlist goes stale silently.
-> Wallets that spam FOMO users with junk tokens delegate to a different implementation, so the
-> code test excludes them.
+> Do not filter by bundler address. The fleet rotates and any allowlist goes stale silently, and
+> off Robinhood Chain it submits other applications' operations too. Wallets that spam FOMO users
+> with junk tokens delegate to a different implementation, so the code test excludes them.
 
-## Robinhood Chain
+## EVM chains
 
-The operations contract is effectively a FOMO-only feed: almost every operation on it comes from a
-FOMO wallet. That is a property of that contract alone — Relay's depository and executor are
-shared, so the wallet code test still has to be applied there. Two older versions of it are
-deployed on the chain and carry other traffic entirely, so subscribing to the wrong address yields
-nothing useful.
+On Robinhood Chain the operations contract is effectively a FOMO-only feed: almost every operation
+on it comes from a FOMO wallet. On the other chains it carries every application using version
+0.8, and on BNB Smart Chain FOMO's are a minority. Relay's depository and executor are shared on
+every chain, so the wallet code test, and the paymaster test, apply there too. Older versions of
+the operations contract are deployed and carry other traffic entirely, so subscribing to the wrong
+address yields nothing useful.
 
 ### The four things to subscribe to
 
@@ -90,8 +113,10 @@ same transaction, and the order id from the router's calldata.
 
 **Buy payments.** Deposits into Relay's depository name the payer and the amount but never the
 destination. There are two deposit events, one per asset kind, and they are the same trade: watching
-only the ERC-20 shape silently loses every buy that was paid for in ether. Most buys landing on
-Robinhood Chain are paid from Solana, so this is early warning on a minority of them.
+only the ERC-20 shape silently loses every buy paid in the chain's native asset. Most buys landing
+on an EVM chain are paid from Solana, so this is early warning on a minority of them. A deposit of
+a stablecoin with nothing sold beside it is usually cash moving to Solana rather than a buy: its
+other leg is a payout on Solana, not a fill.
 
 ### Reading a bundle
 
@@ -102,6 +127,14 @@ user's deposit.
 Most bundles hold a single operation, which is what makes the ones that do not easy to miss.
 [`09_split_bundle.py`](../scripts/09_split_bundle.py) shows the split.
 
+The `UserOperationEvent` that closes a span is the operation that span belongs to — the standard
+emits it after the operation has run — so it is where a deposit's paymaster is read.
+
+On a chain that reorganises, a log subscription withdraws a log it already delivered by sending it
+again with `removed` set. Skip those rather than decoding them, or a trade on an abandoned block is
+reported twice. A sweep that asks for logs by block hash never sees an abandoned block's logs at
+all.
+
 Pick operations out of the decoded operation array by sender. A selector searched for in the
 bundle's raw calldata matches inside other users' operations too.
 
@@ -109,22 +142,23 @@ bundle's raw calldata matches inside other users' operations too.
 
 | Contract | Event | Use |
 |---|---|---|
-| operations contract | `UserOperationEvent` | the primary feed; sender at `topic[2]` |
+| operations contract | `UserOperationEvent` | the primary feed; sender at `topic[2]`, paymaster at `topic[3]` |
 | operations contract | `BeforeExecution` | bundle boundary — execution logs follow it |
 | operations contract | `UserOperationRevertReason` | a failed action |
 | Relay depository | `RelayErc20Deposit` | a buy payment *and* a sell's proceeds — separate them by span |
-| Relay depository | `RelayNativeDeposit` | the same, paid in ether. One word shorter: amount at word 1, order id at word 2 |
+| Relay depository | `RelayNativeDeposit` | the same, paid in the chain's native asset. One word shorter: amount at word 1, order id at word 2 |
 | any ERC-20 | `Transfer` | a buy fill when the sender is Relay's executor |
 
 Topics for each of these are in
 [`../scripts/maintenance/registry.json`](../scripts/maintenance/registry.json), and
 [`maintenance/event_inventory.py`](../scripts/maintenance/event_inventory.py) reports what every
 address in there actually emitted over a window, which is how a topic that moved gets found. The
-registry also holds four `Swap` shapes to decode: Uniswap V4, Uniswap V3, a Pancake V3 fork, and
-Uniswap V2. All four carry FOMO flow, so a decoder that handles a subset drops the rest without
-saying so. Every V4 pool lives inside one pool manager, `0x8366a39C…` rather than Uniswap's
-canonical singleton address, so V4 filters by address while V3 spreads across pool contracts and
-filters by topic alone.
+registry also holds six `Swap` shapes to name venues by: Uniswap V4, Uniswap V3, Pancake V3, Uniswap
+V2, PancakeSwap Infinity on BNB Smart Chain, and the Solidly pair shape Aerodrome's pools emit on
+Base. A venue is a label, never the classification: a buy or a sell is read from what moved, so a
+venue with a shape not listed leaves the label empty rather than losing the trade. On Robinhood
+Chain every V4 pool lives inside one pool manager, `0x8366a39C…` rather than Uniswap's canonical
+singleton address.
 
 Check that a log has topics before reading `topics[0]`. An anonymous event carries none, and the 0x
 Settler in FOMO's route emits them — rarely inside a bundle, steadily on its own address — so a
@@ -193,16 +227,15 @@ A payout itself needs no instruction decoding: it is a plain `spl-token` transfe
 `transferChecked`, so the instruction names no mint. Read the mint from the source token account
 instead, and the recipient from the balance that grew.
 
-One thing the co-signer does not cover: the payout of a sell executed on Robinhood Chain. A Relay
+One thing the co-signer does not cover: the payout of a sell executed on an EVM chain. A Relay
 solver signs and pays for that transfer, FOMO's co-signer appears nowhere in it, and a
 subscription filtered on the co-signer therefore never receives it. That payout has its own
 subscription, keyed on the solver —
 [`05_listen_relay_payouts_blocks.py`](../scripts/05_listen_relay_payouts_blocks.py) over
 WebSocket, [`06_listen_relay_payouts_grpc.py`](../scripts/06_listen_relay_payouts_grpc.py) over
 gRPC — and it is not a FOMO feed: the solver serves every application and every origin chain Relay
-settles from, and much of what arrives was paid for somewhere other than Robinhood Chain. Nothing
-in a payout names an application, so one is FOMO's only when its order id matches a sell seen on
-the other chain.
+settles from. Nothing in a payout names an application, so one is FOMO's only when its order id
+matches a sell, or a stablecoin deposit, seen on an EVM chain.
 
 Closing a wrapped-SOL account refunds its rent, about 0.002 SOL, to the wallet, and that refund
 lands in the same balance delta as the trade itself. Taken at face value it becomes the token
@@ -212,16 +245,18 @@ movements under 0.005 whenever anything else moved.
 ## Transports
 
 Working listeners are in [`../scripts/`](../scripts/), and they implement everything above.
-[`00_listen_fomo.py`](../scripts/00_listen_fomo.py) runs both chains in one feed, one transport per
+[`00_listen_fomo.py`](../scripts/00_listen_fomo.py) runs every chain in one feed, one transport per
 subject; `01` through `06` are the same decoding one subject and one transport at a time — `01` and
-`02` on Robinhood Chain, `03` and `04` on Solana, `05` and `06` on the payout leg. Name a transport
+`02` on any one EVM chain, named as their first argument, `03` and `04` on Solana, `05` and `06` on
+the payout leg. Name a transport
 to override the default; a default whose endpoint is missing from `.env` exits saying which variable
 it wants rather than listening over something else. All of them accept wallet addresses to narrow
 the feed to specific users.
 
 Every subscription above arrives over one of two pipes, and the pipes differ in what they carry and
-in how they fail. The subsections below are what `00` names on the command line: Robinhood Chain is
-`rh-logs` or `rh-blocks`, Solana is `sol-grpc` or `sol-blocks`, and Relay's payouts is
+in how they fail. The subsections below are what `00` names on the command line: each EVM chain is
+`<chain>-logs` or `<chain>-blocks` — `rh`, `bsc`, `base`, `eth`, `monad` — Solana is `sol-grpc` or
+`sol-blocks`, and Relay's payouts is
 `payouts-blocks` or `payouts-grpc` — a third subject rather than a third Solana pipe, because it
 reads the solver, not FOMO.
 
@@ -229,13 +264,13 @@ Raise the WebSocket frame limit on any of them. A busy log subscription on Robin
 Solana subscription carrying full transactions both send frames past the 1 MiB default of most
 clients, which closes the connection with a 1009 instead of delivering the message.
 
-### Robinhood Chain
+### EVM chains
 
-Run [`01_listen_robinhood_logs.py`](../scripts/01_listen_robinhood_logs.py). Run
-[`02_listen_robinhood_blocks.py`](../scripts/02_listen_robinhood_blocks.py) when a block's events
-have to arrive together, or when the same code has to read past blocks.
+Run [`01_listen_evm_logs.py`](../scripts/01_listen_evm_logs.py). Run
+[`02_listen_evm_blocks.py`](../scripts/02_listen_evm_blocks.py) when a block's events have to
+arrive together, or when the same code has to read past blocks.
 
-| Behavior | [`01_listen_robinhood_logs.py`](../scripts/01_listen_robinhood_logs.py) | [`02_listen_robinhood_blocks.py`](../scripts/02_listen_robinhood_blocks.py) |
+| Behavior | [`01_listen_evm_logs.py`](../scripts/01_listen_evm_logs.py) | [`02_listen_evm_blocks.py`](../scripts/02_listen_evm_blocks.py) |
 |---|---|---|
 | Shape | log subscriptions | heads, then a sweep per block |
 | Subscribes to | six `eth_subscribe` log filters on one socket | `newHeads` |
@@ -248,9 +283,10 @@ Both resolve a token's symbol and decimals and read a wallet's delegation over H
 listener does it off a queue, so a slow lookup never stalls the socket; the sweeping one folds
 those calls into the sweep.
 
-The sweeping listener loses ground whenever a sweep takes longer than the blocks it covers, and
-blocks here arrive about every tenth of a second. Past 300 blocks it stops trying to catch up: it
-prints how far behind it is and skips forward, so the trades in that range are never emitted.
+The sweeping listener loses ground whenever a sweep takes longer than the blocks it covers, and on
+Robinhood Chain blocks arrive about every tenth of a second. Past 300 blocks it stops trying to
+catch up: it prints how far behind it is and skips forward, so the trades in that range are never
+emitted.
 
 Two rules for writing a sweeping reader. Drain the head queue to the newest before sweeping, or you
 fall a block further behind on every notification. And ask for logs by `blockHash`, because
@@ -316,10 +352,11 @@ that chain caught and it did not. Run it against your own endpoints before commi
 The order id is written on both chains, so nothing else is needed. It sits somewhere different in
 each direction, and in each direction one half is the user's transaction and the other is a solver's:
 
-| Direction | Robinhood Chain | Solana |
+| Direction | EVM chain | Solana |
 |---|---|---|
 | Buy | solver's fill — the last 32 bytes of the call to Relay's router | user's payment — bytes 16 to 48 of the Relay deposit instruction, after the discriminator and the amount |
 | Sell | user's deposit — the last word of the depository log | solver's payout — an `spl-memo` carrying the id |
+| Cash moving to Solana | user's deposit — the last word of the depository log | solver's payout — an `spl-memo` carrying the id |
 
 Read those last 32 bytes only when the transaction's `to` is Relay's router. Executor `Transfer`s
 also appear inside `handleOps` bundles, where the end of the calldata is unrelated data.
@@ -335,19 +372,32 @@ application tag: there is nothing on this side to attribute with.
 
 That makes the join local and free, in both directions: hold recent deposits by order id and match
 each fill against them. [`00_listen_fomo.py`](../scripts/00_listen_fomo.py) does exactly that while
-both chains are streaming, printing a filled buy together with the payment that bought it and a
-payout together with the sell it settles.
+every chain is streaming, printing a filled buy together with the payment that bought it, and a
+payout together with the sell it settles or the cash it moved.
 [`07_trace_trade.py`](../scripts/07_trace_trade.py) does it after the fact in either direction,
 taking a transaction hash, a Solana signature or an order id and printing both legs — for a sell it
 reads the solver's own recent transactions, since nothing indexes a memo. For a wallet rather than
-one trade, [`08_wallet.py`](../scripts/08_wallet.py) reads its past on Robinhood Chain, and
+one trade, [`08_wallet.py`](../scripts/08_wallet.py) reads its past on one EVM chain, and
 [`maintenance/active_wallets.py`](../scripts/maintenance/active_wallets.py) mines recorded runs
 for the addresses that keep trading, joining each one's two chains by the same order id.
 
 ## Where this comes from
 
 Read from the chains. Every subscription and decoding rule here is implemented by the scripts in
-[`../scripts/`](../scripts/), run against Chainstack endpoints on both mainnets. Addresses, topics
+[`../scripts/`](../scripts/), run against Chainstack endpoints on Robinhood Chain, BNB Smart
+Chain, Base, Ethereum, Monad and Solana mainnet. On 2026-10-30
+[`maintenance/probe_chain.py`](../scripts/maintenance/probe_chain.py) found the same contracts on
+all five EVM chains, and found the delegation on 287, 239, 155 and 33 of 300 wallets recorded on
+Robinhood Chain when read on BNB Smart Chain, Base, Ethereum and Monad. It also measured the
+paymasters: on BNB Smart Chain 25 of 199 operations from wallets carrying the delegation named
+`0x8888888888…`, on Base 64 of 126, on Ethereum 75 of 182, on Robinhood Chain 1 of 77. The
+same day, Relay's `referrer` on deposits from such wallets on BNB Smart Chain and Base read `fomo`
+for all 8 with no paymaster and fun.xyz or tria for all 8 sponsored by `0x8888888888…`. Both
+transports agreed on every trade on Robinhood Chain, BNB Smart Chain, Base and Ethereum over
+four- and five-minute windows on 2026-10-30. In a ten-minute recording of every chain that day,
+all 12 buys on EVM chains delivered to wallets carrying the delegation were FOMO's: 11 joined a
+payment FOMO's co-signer signed on Solana, and one ran inside the wallet's own unsponsored
+operation. Addresses, topics
 and event shapes are [`registry.json`](../scripts/maintenance/registry.json), re-verified
 2026-10-30; the transport comparison was last run 2026-10-30. The second Relay pair was identified
 on 2026-10-30 by matching 21 Robinhood Chain fills to Solana deposits carrying the same order id:

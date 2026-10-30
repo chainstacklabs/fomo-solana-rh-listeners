@@ -1,22 +1,95 @@
-"""What Robinhood Chain is made of, and the decoding that needs no network.
+"""What FOMO's EVM chains are made of, and the decoding that needs no network.
 
-Addresses, topics and the ABI slicing that reads them. Everything here is either a fact
-about the chain or a pure function over bytes, so it can be read in one sitting and changed
-in one place. Nothing here makes a request: a listener's own plumbing stays in the listener,
-because how 01 and 02 fetch differs and hiding that behind a shared layer would make both
-harder to follow, not easier.
+FOMO runs the same way on every EVM chain it trades on: an ERC-4337 operation from a wallet
+carrying one EIP-7702 delegation, paid into and filled out of Relay's contracts, which Relay
+deploys at the same addresses everywhere. So the contracts, the topics and the ABI slicing
+that reads them are written once, here, and what genuinely differs between chains — the
+endpoint, the native asset, the cash a trade passes through — is one row of `CHAINS`.
+
+Everything here is either a fact about a chain or a pure function over bytes, so it can be
+read in one sitting and changed in one place. Nothing here makes a request: a listener's own
+plumbing stays in the listener, because how 01 and 02 fetch differs and hiding that behind a
+shared layer would make both harder to follow, not easier.
 
 `maintenance/registry.json` is the verified record of these values and
-`maintenance/verify_registry.py` checks it against the live chain. This module is the copy
-the scripts import; when the two disagree, the chain decides.
+`maintenance/verify_registry.py` checks it against the live chain;
+`maintenance/probe_chain.py` is how a chain earns its row. This module is the copy the
+scripts import; when the two disagree, the chain decides.
 
 Reference: docs/07-addresses.md, docs/04-listening.md (Event surface).
 """
 
-# --- who is who -------------------------------------------------------------
+from typing import NamedTuple
+
 from web3 import Web3
 
-CHAIN_ID = 4663
+
+class Chain(NamedTuple):
+    """One EVM chain FOMO trades on: what a listener needs to know that the contracts do not say."""
+
+    code: str  # the column a row is printed under: see shared/feed.py
+    name: str  # what the chain is called in a sentence
+    variable: str  # the prefix of its two endpoints in .env, as <variable>_MAINNET_WSS and _HTTPS
+    chain_id: int
+    native: str  # what a native deposit is paid in; 18 decimals on every one of these chains
+    cash: tuple[str, ...]  # the quote tokens a sell is paid out of, lowercased: never the thing sold
+    block_seconds: float  # how far apart blocks are, which sets how long silence is allowed to last
+
+
+# Keyed by the name a transport is called after: `rh-logs`, `rh-blocks`, `rh-off`. Each row
+# was earned by maintenance/probe_chain.py, and its cash read off FOMO's own deposits there.
+CHAINS = {
+    "rh": Chain(
+        code="RH",
+        name="Robinhood Chain",
+        variable="ROBINHOOD",
+        chain_id=4663,
+        native="ETH",
+        cash=("0x5fc5360d0400a0fd4f2af552add042d716f1d168",),  # USDG, six decimals
+        block_seconds=0.1,
+    ),
+    "bsc": Chain(
+        code="BSC",
+        name="BNB Smart Chain",
+        variable="BSC",
+        chain_id=56,
+        native="BNB",
+        # USDT and USDC, both eighteen decimals here rather than six: read per token, never assumed.
+        cash=("0x55d398326f99059ff775485246999027b3197955", "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d"),
+        block_seconds=0.45,
+    ),
+    "base": Chain(
+        code="BASE",
+        name="Base",
+        variable="BASE",
+        chain_id=8453,
+        native="ETH",
+        cash=("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",),  # USDC
+        block_seconds=2.0,
+    ),
+    "eth": Chain(
+        code="ETH",
+        name="Ethereum",
+        variable="ETHEREUM",
+        chain_id=1,
+        native="ETH",
+        # USDC, USDT
+        cash=("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", "0xdac17f958d2ee523a2206206994597c13d831ec7"),
+        block_seconds=12.0,
+    ),
+    "monad": Chain(
+        code="MON",
+        name="Monad",
+        variable="MONAD",
+        chain_id=143,
+        native="MON",
+        # USDC, USDT0
+        cash=("0x754704bc059f8c67012fed69bc8a327a5aafb603", "0xe7cd86e13ac4309349f30b3435a9d337750fc82d"),
+        block_seconds=0.4,
+    ),
+}
+
+# --- who is who, the same on every chain above -------------------------------
 ENTRYPOINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
 DEPOSITORY = "0x4cD00E387622C35bDDB9b4c962C136462338BC31"
 # Relay's executor moves the tokens and its router is what a solver's fill calls. Relay
@@ -25,7 +98,6 @@ DEPOSITORY = "0x4cD00E387622C35bDDB9b4c962C136462338BC31"
 EXECUTORS = ("0x0729e2a4716d9f7dd17858d5d504426d228697f7", "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f")
 EXECUTOR_TOPICS = ["0x" + "0" * 24 + executor[2:] for executor in EXECUTORS]
 ROUTERS = ("0x5567954cd026cebfe486062cb75848e0f1c12e58", "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be")
-CASH = "0x5fc5360d0400a0fd4f2af552add042d716f1d168"
 BURN = "0x0000000000000000000000000000000000000000"
 
 # A FOMO wallet is an ordinary address carrying one EIP-7702 delegation, and the
@@ -48,6 +120,10 @@ VENUES = {
     "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67": "UniV3",
     "0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83": "PancakeV3",
     "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822": "UniV2",
+    # PancakeSwap Infinity, on BNB Smart Chain: Uniswap V4's shape with a protocol fee added.
+    "0x04206ad2b7c0f463bff3dd4f33c5735b0f2957a351e4f79763a4fa9e775dd237": "PancakeInf",
+    # The Solidly pair shape, which Aerodrome's pools on Base emit.
+    "0xb3e2773606abfd36b5bd91394b3a54d1398336c65005baf7bf7a05efeffaf75b": "Solidly",
 }
 SYMBOL, DECIMALS = "0x95d89b41", "0x313ce567"  # symbol(), decimals()
 
@@ -83,10 +159,25 @@ def topic(log, index=0):
     Raw JSON-RPC hands back a prefixed string and web3 hands back HexBytes, whose
     `hex()` drops the prefix. Stripping `0x` with `lstrip` would eat a leading zero
     of the topic itself, so the prefix is removed once and the value padded back.
+    A topic the log does not carry is "", which matches no topic: an anonymous event
+    has none at all, and a receipt read whole will hold one sooner or later.
     """
+    if len(log["topics"]) <= index:
+        return ""
     raw = log["topics"][index]
     raw = raw if isinstance(raw, str) else raw.hex()
     return "0x" + raw.removeprefix("0x").rjust(64, "0")
+
+
+def sponsored(operation):
+    """Did a paymaster pay for this `UserOperationEvent`? Topic 3 is the paymaster.
+
+    FOMO's bundler absorbs the gas, so a FOMO operation names no paymaster. Its delegation
+    is the reference account deployed at one address on every chain, and on most of them
+    other applications delegate to it too; the ones seen sponsor their users' operations
+    through a paymaster. So a paymaster is what tells such a wallet's deposit from FOMO's.
+    """
+    return int(operation["topics"][3], 16) != 0
 
 
 def span(boundaries, index):

@@ -7,9 +7,9 @@ many separate runs an address appears in, which is the closest thing the recordi
 seen forty times inside a single run is one busy afternoon.
 
 It also recovers what FOMO's backend does not publish. The Relay order id is written on both
-chains, so a row on each side carrying the same id is one person: their Robinhood Chain
-address and their Solana address, linked with no help from the app. Buys join a Solana
-payment to a Robinhood fill, sells join a Robinhood deposit to a Solana payout.
+chains, so a row on each side carrying the same id is one person: their EVM address, which is
+the same on every EVM chain, and their Solana address, linked with no help from the app. Buys
+join a Solana payment to an EVM fill, sells join an EVM deposit to a Solana payout.
 
 Reads `scripts/runs/*.jsonl`, which the listeners write, and puts `wallets.local.json` beside
 this script rather than beside them: nothing else reads it, and the top level of `scripts/` is
@@ -56,6 +56,9 @@ def read():
             who, chain = row.get("who"), row.get("chain")
             if not who or not chain:
                 continue
+            # A FOMO wallet has one address on every EVM chain, so every chain but Solana
+            # is one side of the pair.
+            chain = "SOL" if chain == "SOL" else "EVM"
             entry = wallets[who]
             entry["chain"] = chain
             entry["kinds"][row.get("kind", "?")] += 1
@@ -70,8 +73,8 @@ def read():
                 legs[order][chain] = who
                 seen_days[order] = day
     for order, sides in legs.items():
-        if "RH" in sides and "SOL" in sides:
-            pairs[(sides["RH"], sides["SOL"], seen_days[order])] += 1
+        if "EVM" in sides and "SOL" in sides:
+            pairs[(sides["EVM"], sides["SOL"], seen_days[order])] += 1
     return wallets, pairs
 
 
@@ -100,10 +103,10 @@ def main():
     # A pair is worth more than a single address: it is one person on two chains, which
     # nothing public states. Rank by how many separate trades joined the two.
     joined = {}
-    for (rh, sol, day), n in pairs.most_common():
-        joined.setdefault((rh, sol), {"robinhood": rh, "solana": sol, "joins": 0, "lastSeen": ""})
-        joined[(rh, sol)]["joins"] += n
-        joined[(rh, sol)]["lastSeen"] = max(joined[(rh, sol)]["lastSeen"], day)
+    for (evm, sol, day), n in pairs.most_common():
+        joined.setdefault((evm, sol), {"evm": evm, "solana": sol, "joins": 0, "lastSeen": ""})
+        joined[(evm, sol)]["joins"] += n
+        joined[(evm, sol)]["lastSeen"] = max(joined[(evm, sol)]["lastSeen"], day)
     best = sorted(joined.values(), key=lambda p: (p["joins"], p["lastSeen"]), reverse=True)[:count]
 
     OUT.write_text(
@@ -118,7 +121,7 @@ def main():
                 "_builtAt": datetime.now().strftime("%Y-%m-%d"),
                 "_from": {"runs": len(files), "wallets": len(wallets), "pairs": len(joined)},
                 "pairs": best,
-                "robinhood": rank(wallets, "RH", count),
+                "evm": rank(wallets, "EVM", count),
                 "solana": rank(wallets, "SOL", count),
             },
             indent=2,
@@ -128,7 +131,7 @@ def main():
     print(f"{len(wallets)} wallets over {len(files)} runs, {len(joined)} cross-chain pairs")
     print(f"kept the top {count} of each in {OUT}\n")
     for pair in best[:5]:
-        print(f"  {pair['robinhood']}  {pair['solana']}  {pair['joins']} joins  {pair['lastSeen']}")
+        print(f"  {pair['evm']}  {pair['solana']}  {pair['joins']} joins  {pair['lastSeen']}")
 
 
 if __name__ == "__main__":

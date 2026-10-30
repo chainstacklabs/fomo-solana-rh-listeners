@@ -10,7 +10,9 @@ the live chain and prints PASS or FAIL per claim: the account, intent and aggreg
 contracts still have code, the EOAs among them are still EOAs, every venue factory and the
 V4 pool manager and both non-AMM venues are alive, USDG really is 6 decimals, each
 registered event still fires, and the wallet fingerprint still separates a FOMO wallet from
-a lookalike and still matches the one shared/robinhood.py hands the listeners. The market
+a lookalike and still matches the one shared/evm.py hands the listeners. Then every other
+EVM chain in shared/evm.py's table whose endpoint is set: the right chain id, the shared
+contracts present, and its cash at the symbol and scale `evmChains` records. The market
 survey and offchain sections are descriptive and are not checked. Set SOLANA_MAINNET_HTTPS
 and the Solana entries are checked too: the co-signer is still busy and every router FOMO
 uses is still an executable program.
@@ -38,7 +40,7 @@ from web3 import Web3
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared import env
-from shared.robinhood import FOMO_CODE
+from shared.evm import CHAINS, DEPOSITORY, ENTRYPOINT, EXECUTORS, FOMO_CODE, FOMO_IMPLEMENTATION, ROUTERS
 from shared.solana import TX_VERSION
 
 w3 = Web3(Web3.HTTPProvider(env.endpoint("ROBINHOOD_MAINNET_HTTPS")))
@@ -149,13 +151,51 @@ for topic, meta in reg["events"].items():
 print("\n-- FOMO wallet fingerprint discriminates --")
 recorded = reg["accountLayer"]["fomoWalletFingerprint"]["test"].split("== ")[1]
 fp = bytes.fromhex(recorded.removeprefix("0x"))
-# The listeners test wallets against shared/robinhood.py, not against this file. If the
+# The listeners test wallets against shared/evm.py, not against this file. If the
 # two drift apart every listener silently stops recognising a FOMO wallet, so the drift
 # is worth a check of its own.
-check(f"shared/robinhood.py agrees with the recorded fingerprint {recorded[:14]}…", recorded == FOMO_CODE)
+check(f"shared/evm.py agrees with the recorded fingerprint {recorded[:14]}…", recorded == FOMO_CODE)
 check("a known FOMO wallet matches the fingerprint", w3.eth.get_code(Web3.to_checksum_address(KNOWN_FOMO)) == fp)
 duster = "0x3F48ad1d49643ED1FCec16cc44Bd6bE8Dbfe48eE"
 check("duster wallet does NOT match", w3.eth.get_code(Web3.to_checksum_address(duster)) != fp)
+
+print("\n-- every EVM chain FOMO trades on --")
+# Robinhood Chain is checked in depth above; every chain in shared/evm.py's table gets the
+# claims its listener relies on: the right chain behind the endpoint, the contracts at the
+# addresses written once for all of them, and its cash at the scale the registry records.
+erc20 = [
+    {"name": name, "type": "function", "inputs": [], "outputs": [{"type": kind}], "stateMutability": "view"}
+    for name, kind in (("symbol", "string"), ("decimals", "uint8"))
+]
+shared_contracts = {"EntryPoint v0.8": ENTRYPOINT, "Simple7702Account": "0x" + FOMO_IMPLEMENTATION}
+shared_contracts |= {"Relay depository": DEPOSITORY}
+shared_contracts |= {f"Relay router {r[:8]}…": r for r in ROUTERS} | {f"Relay executor {e[:8]}…": e for e in EXECUTORS}
+for network, chain in CHAINS.items():
+    recorded = reg["evmChains"].get(network)
+    check(f"{network}: registry.json has a row for it", recorded is not None)
+    if not recorded:
+        continue
+    check(
+        f"{network}: shared/evm.py's cash agrees with the registry",
+        sorted(chain.cash) == sorted(c["address"] for c in recorded["cash"]),
+    )
+    url = env.optional(f"{chain.variable}_MAINNET_HTTPS")
+    if not url:
+        print(f"  SKIP  {network}: set {chain.variable}_MAINNET_HTTPS to check it against the chain")
+        continue
+    here = Web3(Web3.HTTPProvider(url))
+    check(f"{network}: endpoint is chain {chain.chain_id}", here.eth.chain_id == chain.chain_id == recorded["chainId"])
+    for name, address in shared_contracts.items():
+        size = len(here.eth.get_code(Web3.to_checksum_address(address)))
+        check(f"{network}: {name} has code", size > 0, f"codesize={size}")
+    for cash in recorded["cash"]:
+        token = here.eth.contract(address=Web3.to_checksum_address(cash["address"]), abi=erc20)
+        live = (token.functions.symbol().call(), token.functions.decimals().call())
+        check(
+            f"{network}: {cash['symbol']} has {cash['decimals']} decimals",
+            live == (cash["symbol"], cash["decimals"]),
+            f"chain says {live}",
+        )
 
 print("\n-- solana --")
 if not SOLANA:

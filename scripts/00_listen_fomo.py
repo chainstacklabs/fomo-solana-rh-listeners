@@ -1,23 +1,26 @@
-"""Every FOMO trade on both chains, in one feed. Start here.
+"""Every FOMO trade on every chain it trades on, in one feed. Start here.
 
-FOMO is cross-chain: Solana holds the cash and is where a buy is paid for, Robinhood
-Chain holds the tokens and is where a buy is finally named. This runs one listener per
-chain, side by side, and prints them as a single stream.
+FOMO is cross-chain: Solana holds the cash and is where a buy is paid for, and each EVM
+chain holds the tokens issued there and is where a buy is finally named. This runs one
+listener per chain, side by side, and prints them as a single stream. The EVM chains are
+the rows of shared/evm.py's `CHAINS`.
 
-Every kind reaches this feed — BUY, SELL and PAY off Robinhood Chain, SWAP, PAY, IN, OUT
-and OTHER off Solana. shared/feed.py defines what each one means.
+Every kind reaches this feed — BUY, SELL and PAY off each EVM chain, SWAP, PAY, IN, OUT and
+OTHER off Solana. shared/feed.py defines what each one means.
 
-Both chains run in one process, so the halves of a cross-chain buy can be put back
-together: the Solana payment carries the Relay order id, and the solver's fill on
-Robinhood Chain ends its calldata with the same id. A filled buy prints with the payment
-that bought it and how long it took, off the chains themselves, with no Relay API.
+Every chain runs in one process, so the halves of a cross-chain buy can be put back
+together: the Solana payment carries the Relay order id, and the solver's fill on the EVM
+chain ends its calldata with the same id. A filled buy prints with the payment that bought
+it and how long it took, off the chains themselves, with no Relay API. The EVM listeners
+are told which order ids FOMO's co-signer paid for, so a token delivered to a wallet that
+has never operated on that chain, and so carries no delegation there yet, is still named.
 
 A sell joins the same way, from the other direction. Its payout on Solana is signed
 by a Relay solver rather than by FOMO's co-signer, so it arrives over a third
 subscription keyed on that solver, carrying the order id in a memo. That stream is
 every application Relay settles on Solana, not FOMO's alone, and nothing in a payout
 says which application it belongs to — a payout is named here only when its order id
-matches a sell this run sees on Robinhood Chain, before or after it. The rest are counted.
+matches a sell this run sees on an EVM chain, before or after it. The rest are counted.
 
 One transport per subject, named to override the default. The defaults are the three that
 run on an ordinary endpoint; a default whose endpoint is missing from .env exits saying
@@ -25,8 +28,11 @@ which variable it wants, rather than listening over something else or dropping t
 Which transport is faster or more complete is a property of your endpoint, so measure
 yours with maintenance/compare_listeners.py.
 
-Three subjects, two pipes each, either/or. Relay's payouts are a subject rather than a
-third choice of Solana pipe: they key on the solver rather than on FOMO.
+One subject per EVM chain, plus FOMO on Solana and Relay's payouts, two pipes each,
+either/or. Relay's payouts are a subject rather than a third choice of Solana pipe: they
+key on the solver rather than on FOMO. Every EVM chain is on by default, so a chain whose
+endpoint is missing exits naming the variable rather than leaving a hole in the feed; turn
+one off by name. Each takes the same three, shown here for Robinhood Chain:
 
   rh-logs         six eth_subscribe log filters; nothing polled or fetched  [default]
   rh-blocks       newHeads plus per-block eth_getLogs; groups a block together
@@ -40,12 +46,13 @@ third choice of Solana pipe: they key on the solver rather than on FOMO.
   payouts-grpc    the same solver over Yellowstone gRPC; needs Geyser
   payouts-off     leave the payouts out; a sell then ends at the deposit into Relay
 
-FOMO is one tenant of Relay's contracts on Robinhood Chain, so rows from there are the
-wallets carrying FOMO's delegation and nobody else's. Solana has no such marker, and
-everything reached through FOMO's co-signer is FOMO's. Wallet arguments filter by user,
-each on its own chain: 0x addresses filter Robinhood Chain, base58 ones Solana, and a
-chain given no wallet keeps streaming every FOMO trade. One user is two addresses, so
-watching a person means passing both.
+FOMO is one tenant of Relay's contracts on every EVM chain, so rows from there are the
+wallets carrying FOMO's delegation, plus the deliveries whose order FOMO paid for on
+Solana. Solana has no such marker, and everything reached through FOMO's co-signer is
+FOMO's. Wallet arguments filter by user: a 0x address filters every EVM chain, because a
+FOMO wallet has the same address on all of them, and a base58 one filters Solana. A chain
+given no wallet keeps streaming every FOMO trade. One user is two addresses, so watching a
+person means passing both.
 
 This decodes nothing itself. It imports `listen()` from 01 through 06, so a
 decoding rule lives in exactly one place, and it is the only script here that imports
@@ -58,7 +65,6 @@ Reference: docs/04-listening.md, docs/02-trade-lifecycle.md (Four shapes).
 """
 
 import asyncio
-import importlib
 import sys
 import time
 from collections import Counter
@@ -66,22 +72,25 @@ from pathlib import Path
 
 from shared import feed, transports
 from shared.cli import wallet_shaped
+from shared.evm import CHAINS
 from shared.transports import TRANSPORTS
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 JOIN_WINDOW = 600  # seconds a payment waits for its fill before it is forgotten
-OFF = ("rh-off", "sol-off", "payouts-off")
+OFF = (*(f"{network}-off" for network in CHAINS), "sol-off", "payouts-off")
+SLOTS = (*(f"{network}-" for network in CHAINS), "sol-", "payouts")
 
 
 def choose(argv):
-    """(seconds, robinhood transport, solana transport, payout transport, wallets).
+    """(seconds, one transport per slot, wallets).
 
-    The defaults are fixed rather than chosen from what `.env` happens to hold, and
-    they are the transports an ordinary endpoint serves. A transport whose endpoint is
-    missing is an error worth reading, not a reason to quietly listen over something
-    else or to drop a subject: pass the transport you want, or `rh-off`/`sol-off`/
-    `payouts-off` to mean it.
+    The slots are every EVM chain, then Solana, then the payouts, each holding a
+    transport name or its `-off`. The defaults are fixed rather than chosen from what
+    `.env` happens to hold, and they are the transports an ordinary endpoint serves. A
+    transport whose endpoint is missing is an error worth reading, not a reason to
+    quietly listen over something else or to drop a subject: pass the transport you
+    want, or `<slot>-off` to mean it.
     """
     seconds, chosen, wallets = 120, [], []
     rest = list(argv)
@@ -93,7 +102,7 @@ def choose(argv):
     for arg in rest:
         if arg in TRANSPORTS or arg in OFF:
             chosen.append(arg)
-        elif arg.startswith(("rh-", "sol-", "payouts", "fills")):
+        elif arg.startswith((*SLOTS, "fills")):
             # A near miss is a typo, not a wallet. Silently watching a wallet called
             # "sol-grpcx" would look like a chain that had gone quiet. Bare "payouts" and
             # "fills" land here too: both named the payout feed when it had one transport,
@@ -108,53 +117,56 @@ def choose(argv):
         else:
             wallets.append(arg)
 
-    robinhood = next((c for c in chosen if c.startswith("rh-")), "rh-logs")
-    solana = next((c for c in chosen if c.startswith("sol-")), "sol-blocks")
-    payouts = next((c for c in chosen if c.startswith("payouts")), "payouts-blocks")
-    return seconds, robinhood, solana, payouts, wallets
+    defaults = {**{f"{network}-": f"{network}-logs" for network in CHAINS}, "sol-": "sol-blocks"}
+    defaults["payouts"] = "payouts-blocks"
+    slots = [next((c for c in chosen if c.startswith(slot)), default) for slot, default in defaults.items()]
+    return seconds, slots, wallets
 
 
 async def main():
-    seconds, robinhood, solana, payouts, wallets = choose(sys.argv[1:])
-    for name in (robinhood, solana, payouts):
+    seconds, slots, wallets = choose(sys.argv[1:])
+    *evm, solana, payouts = slots
+    for name in slots:
         if name in TRANSPORTS and (why := transports.unconfigured(name)):
             sys.exit(f"{name} {why}")
-    if robinhood == "rh-off" and solana == "sol-off":
-        sys.exit("nothing to listen to: rh-off and sol-off together leave no chain")
+    if all(name.endswith("-off") for name in [*evm, solana]):
+        sys.exit("nothing to listen to: every chain is off")
 
-    watched = {
-        "RH": {w.lower() for w in wallets if w.startswith("0x")},
-        "SOL": {w for w in wallets if not w.startswith("0x")},
-    }
-    picked = [name for name in (robinhood, solana, payouts) if name in TRANSPORTS]
+    # A FOMO wallet has one address on every EVM chain, so a 0x address filters all of
+    # them; base58 is Solana's alone.
+    evm_wallets = {w.lower() for w in wallets if w.startswith("0x")}
+    watched = {chain.code: evm_wallets for chain in CHAINS.values()}
+    watched["SOL"] = {w for w in wallets if not w.startswith("0x")}
+    picked = [name for name in slots if name in TRANSPORTS]
     tally = {name: Counter() for name in picked}
 
     for name in picked:
         print(f"{name:<15} {TRANSPORTS[name].summary}")
-    if robinhood == "rh-off":
-        print(f"{'rh-off':<15} Robinhood Chain is off, so no buy will ever be named")
+    for network, name in zip(CHAINS, evm, strict=True):
+        if name.endswith("-off"):
+            print(f"{name:<15} {CHAINS[network].name} is off, so no buy delivered there will be named")
     if solana == "sol-off":
         print(f"{'sol-off':<15} Solana is off, so payments and Solana-native swaps are invisible")
     if payouts == "payouts-off":
         print(f"{'payouts-off':<15} payouts are off, so a sell ends at the deposit into Relay")
-    # A wallet filters the chain its address belongs to and no other. A user's
-    # Robinhood Chain address and their Solana address are unrelated, so passing one
-    # leaves the other chain streaming every FOMO trade — which reads as a filter that
-    # did nothing. Print the state of each chain rather than a total.
+    # A wallet filters the chains its address belongs to and no other. A user's EVM
+    # address and their Solana address are unrelated, so passing one leaves the other
+    # side streaming every FOMO trade — which reads as a filter that did nothing. Print
+    # the state of each chain rather than a total.
     print(f"\nlistening {seconds} s, FOMO only")
     for name in sorted({TRANSPORTS[n].chain for n in picked}):
         held = len(watched[name])
         print(f"  {name:<5}{f'filtering {held} wallet(s)' if held else 'every FOMO wallet'}")
     print()
-    show, done = feed.start("00_listen_fomo", "RH", "SOL")
+    show, done = feed.start("00_listen_fomo", *(c.code for c in CHAINS.values()), "SOL")
 
-    # A Solana payment names the order it pays for; the fill on Robinhood Chain ends
-    # its calldata with the same id. Holding payments briefly lets the two halves be
-    # printed as one trade. Anything older than the window is a payment whose fill
-    # will not arrive while this is running.
+    # A Solana payment names the order it pays for; the fill on the EVM chain ends its
+    # calldata with the same id. Holding payments briefly lets the two halves be printed
+    # as one trade. Anything older than the window is a payment whose fill will not
+    # arrive while this is running.
     # Both directions join on the order id, and in both the half that arrives second
-    # is the one worth printing whole. A buy is paid on Solana and named on Robinhood
-    # Chain; a sell is made on Robinhood Chain and paid out on Solana.
+    # is the one worth printing whole. A buy is paid on Solana and named on an EVM
+    # chain; a sell is made on an EVM chain and paid out on Solana.
     paid, sold, payouts = {}, {}, {}
     joins = Counter()
 
@@ -165,39 +177,53 @@ async def main():
             if held is payouts:
                 joins["Relay payouts for other applications"] += 1
 
-    def settles(sell, gap):
+    def settles(leg, gap):
+        """The line under a payout: what it settles, and when the other half went past.
+
+        A sell's payout is its proceeds. An EVM payment's payout is that same cash arriving
+        on Solana, where FOMO keeps the balance — money moving, not a trade.
+        """
+        if leg.kind == "PAY":
+            joins["cash moved to Solana"] += 1
+            return f"lands {feed.amount(leg.gave)} paid in by {feed.short(leg.who)}, seen {gap}"
         joins["sells settled on Solana"] += 1
-        return f"settles {feed.amount(sell.gave or sell.got)} sold by {feed.short(sell.who)}, seen {gap}"
+        return f"settles {feed.amount(leg.gave or leg.got)} sold by {feed.short(leg.who)}, seen {gap}"
 
     def run(name):
         chain = TRANSPORTS[name].chain
 
         def emit(trade):
             tail = ""
-            if trade.order_id and chain == "SOL" and trade.kind == "PAY":
+            outbound = chain != "SOL" and trade.kind in ("SELL", "PAY")
+            if trade.order_id and outbound and trade.order_id in payouts:
+                # The payout lands about a second after the deposit, and a stream at
+                # `processed` hears it before the deposit's block has been decoded. The
+                # payout was held for this deposit, so it prints now, under it.
+                payout, at = payouts.pop(trade.order_id)
+                show(trade, chain, "")
+                show(payout, "SOL", settles(trade, f"{time.time() - at:.1f}s later"))
+                return
+            if trade.order_id and trade.kind == "PAY":
+                # Paid on any chain: delivered as a token on an EVM chain, or, from an EVM
+                # chain, as cash on Solana.
                 remember(paid, trade)
-            elif trade.order_id and chain == "RH" and trade.kind == "SELL":
-                if trade.order_id not in payouts:
-                    remember(sold, trade)
-                else:
-                    # The payout lands about a second after the sell, and a stream at
-                    # `processed` hears it before the sell's block has been decoded. The
-                    # payout was held for this sell, so it prints now, under it.
-                    payout, at = payouts.pop(trade.order_id)
-                    show(trade, chain, "")
-                    show(payout, "SOL", settles(trade, f"{time.time() - at:.1f}s later"))
-                    return
+            elif trade.order_id and chain != "SOL" and trade.kind == "SELL":
+                remember(sold, trade)
             elif trade.kind == "FILL":
                 # This stream carries every application Relay settles on Solana, and a
-                # payout says nothing about which. Only one whose order id matches a sell
-                # seen here can be called FOMO's. One that arrives first is held for its
-                # sell, and whatever is still unmatched when it expires is counted.
-                if trade.order_id not in sold:
+                # payout says nothing about which. Only one whose order id matches a sell or
+                # a payment seen here can be called FOMO's. One that arrives first is held
+                # for it, and whatever is still unmatched when it expires is counted.
+                # A payment held here may be Solana's own, which a payout never settles: only a
+                # payment on an EVM chain is cash on its way to Solana.
+                evm_paid = trade.order_id in paid and not paid[trade.order_id][0].where.startswith("slot")
+                held = sold if trade.order_id in sold else paid if evm_paid else None
+                if held is None:
                     remember(payouts, trade)
                     return
-                sell, at = sold.pop(trade.order_id)
-                tail = settles(sell, f"{time.time() - at:.1f}s earlier")
-            elif trade.order_id and chain == "RH" and trade.order_id in paid:
+                leg, at = held.pop(trade.order_id)
+                tail = settles(leg, f"{time.time() - at:.1f}s earlier")
+            elif trade.order_id and chain != "SOL" and trade.order_id in paid:
                 pay, at = paid.pop(trade.order_id)
                 joins["cross-chain trades seen whole"] += 1
                 # The join is the row worth reading, so it gets a line of its own.
@@ -207,8 +233,11 @@ async def main():
                 tail = f"paid {paid_with} by {feed.short(pay.who)}, seen {time.time() - at:.1f}s earlier"
             show(trade, chain, tail)
 
-        module = importlib.import_module(TRANSPORTS[name].module)
-        return module.listen(time.time() + seconds, watched[chain], emit, tally[name])
+        # An EVM listener is told which orders FOMO's co-signer paid for, so a delivery to a
+        # wallet with no delegation on that chain yet is still named rather than dropped.
+        extra = {"claimed": paid.__contains__} if TRANSPORTS[name].network else {}
+        listen = transports.listener(name, **extra)
+        return listen(time.time() + seconds, watched[chain], emit, tally[name])
 
     outcomes = await asyncio.gather(*(run(name) for name in picked), return_exceptions=True)
     for name, outcome in zip(picked, outcomes, strict=True):

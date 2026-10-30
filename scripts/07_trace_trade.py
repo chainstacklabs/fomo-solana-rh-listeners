@@ -1,4 +1,4 @@
-"""Follow one FOMO trade across both chains, using nothing but the two chains.
+"""Follow one FOMO trade across Solana and an EVM chain, using nothing but the two chains.
 
 A cross-chain trade is two transactions that share nothing an explorer will join for you.
 The link is a 32-byte order id written on both sides, so the join needs no third party.
@@ -7,16 +7,19 @@ that API is throttled, retires on 2026-11-24, and its replacement wants a key.
 
 The two directions are not shaped alike, and the id sits somewhere different in each:
 
-  buy    Solana pays, Robinhood Chain fills. The Relay deposit instruction carries the id
+  buy    Solana pays, the EVM chain fills. The Relay deposit instruction carries the id
          after the amount; the solver's fill ends its router calldata with it.
-  sell   Robinhood Chain executes, Solana pays out. The depository log carries the id in
-         its last word; the solver's transfer carries it in an spl-memo.
+  sell   The EVM chain executes, Solana pays out. The depository log carries the id in
+         its last word; the solver's transfer carries it in an spl-memo. Cash moving to
+         Solana is the same shape with no swap before the deposit, so the deposit is
+         printed as one and not called a sale.
 
 A sell's payout is signed by a Relay solver and not by FOMO's co-signer, so no listener in
 this repository sees it — the co-signer subscription never receives that transaction. This
 script finds it by reading the solver's own recent transactions.
 
-Takes any one of a Robinhood Chain transaction (0x, 66 chars — a solver's fill or a deposit
+Takes the EVM chain to search, one of shared/evm.py's `CHAINS`, then any one of a
+transaction on it (0x, 66 chars — a solver's fill or a deposit
 in either asset shape), a Solana signature (base58, either a Relay deposit or a settlement),
 or an order id (0x, 66 chars, from either side), and searches for the counterpart in both
 directions. Searching is bounded by the minutes argument, because without an index the only
@@ -33,7 +36,7 @@ Reference: docs/04-listening.md (Joining the two legs), docs/05-relay.md (Follow
 A `handleOps` bundle carries several users, so a transaction holding more than one deposit
 names a transaction and not a trade: the first is followed and the count is printed.
 
-    uv run scripts/07_trace_trade.py <tx hash | signature | order id> [minutes]     default 5
+    uv run scripts/07_trace_trade.py <chain> <tx hash | signature | order id> [minutes]     default 5
 """
 
 import sys
@@ -41,8 +44,9 @@ import time
 
 import base58
 import requests
-from shared import env
-from shared.robinhood import (
+from shared import cli, env
+from shared.evm import (
+    CHAINS,
     DECIMALS,
     DELEGATION,
     DEPOSIT,
@@ -59,11 +63,12 @@ from shared.robinhood import (
 from shared.solana import DEPOSIT_DISCRIMINATOR, MEMO_PROGRAMS, RELAY_DEPOSIT, SETTLEMENT_SOLVER, TX_VERSION, mint_name
 from web3 import Web3
 
-RH = env.endpoint("ROBINHOOD_MAINNET_HTTPS")
+here = CHAINS[cli.evm_chain()]
+EVM = env.endpoint(f"{here.variable}_MAINNET_HTTPS")
 SOLANA = env.endpoint("SOLANA_MAINNET_HTTPS")
-w3 = Web3(Web3.HTTPProvider(RH))
+w3 = Web3(Web3.HTTPProvider(EVM))
 
-BLOCK_SECONDS = 0.101
+BLOCK_SECONDS = here.block_seconds
 SWEEP = 300  # blocks per eth_getLogs range
 # A deposit comes in two shapes and they are the same trade. The ERC-20 one names the
 # token and puts the order id at word 3; the ether one names no token and puts it one
@@ -95,7 +100,7 @@ def batch(url, calls):
 def token(address):
     try:
         raw = batch(
-            RH,
+            EVM,
             [
                 ("eth_call", [{"to": address, "data": SYMBOL}, "latest"]),
                 ("eth_call", [{"to": address, "data": DECIMALS}, "latest"]),
@@ -111,7 +116,7 @@ def data_of(log):
     return log["data"].hex().removeprefix("0x")
 
 
-def order_from_robinhood(tx_hash):
+def order_from_evm(tx_hash):
     """(order id, what the transaction is, how many deposits it holds) for one hash."""
     transaction = w3.eth.get_transaction(tx_hash)
     calldata = transaction["input"].hex().removeprefix("0x")
@@ -119,7 +124,7 @@ def order_from_robinhood(tx_hash):
         return "0x" + calldata[-64:], "a solver's fill", 1
     ids = []
     for log in w3.eth.get_transaction_receipt(tx_hash)["logs"]:
-        if not log["topics"] or log["address"].lower() != DEPOSITORY.lower():
+        if log["address"].lower() != DEPOSITORY.lower():
             continue
         position = ORDER_WORD.get(topic(log))
         if position is not None:
@@ -237,11 +242,11 @@ def find_solana_settlement(order_id):
     return "", None
 
 
-def find_robinhood_deposit(order_id):
+def find_evm_deposit(order_id):
     """Search recent depository logs for the deposit carrying this order id."""
     head = w3.eth.block_number
     low = head - int(minutes * 60 / BLOCK_SECONDS)
-    print(f"  searching Robinhood Chain deposits over blocks {low}-{head}")
+    print(f"  searching {here.name} deposits over blocks {low}-{head}")
     for start in range(head, low, -SWEEP):
         criteria = {
             "fromBlock": max(start - SWEEP + 1, low),
@@ -266,10 +271,10 @@ def sweep_fills(order_id, low, high):
             h = log["transactionHash"].hex()
             hashes.append(h if h.startswith("0x") else "0x" + h)
     hashes = list(dict.fromkeys(hashes))
-    print(f"  searching {len(hashes)} Robinhood Chain fills over blocks {low}-{high}")
+    print(f"  searching {len(hashes)} {here.name} fills over blocks {low}-{high}")
     for start in range(0, len(hashes), 100):
         chunk = hashes[start : start + 100]
-        for h, info in zip(chunk, batch(RH, [("eth_getTransactionByHash", [t]) for t in chunk]), strict=True):
+        for h, info in zip(chunk, batch(EVM, [("eth_getTransactionByHash", [t]) for t in chunk]), strict=True):
             if not info or (info.get("to") or "").lower() not in ROUTERS:
                 continue
             calldata = info["input"][2:]
@@ -278,7 +283,7 @@ def sweep_fills(order_id, low, high):
     return ""
 
 
-def find_robinhood_leg(order_id):
+def find_evm_leg(order_id):
     """Search recent solver fills for the one whose call ends with this order id.
 
     A backend that had not reached the end of the range answers it short and says
@@ -316,11 +321,11 @@ def show_solana(signature, tx, amount):
     print(f"    amount         {shown}")
 
 
-def show_robinhood(tx_hash):
-    print(f"\n  filled on Robinhood Chain   {tx_hash}")
+def show_evm(tx_hash):
+    print(f"\n  filled on {here.name}   {tx_hash}")
     receipt = w3.eth.get_transaction_receipt(tx_hash)
     for log in receipt["logs"]:
-        if not log["topics"] or topic(log) != TRANSFER:
+        if topic(log) != TRANSFER:
             continue
         if topic(log, 1) not in EXECUTOR_TOPICS:
             continue
@@ -358,10 +363,10 @@ def show_settlement(signature, tx):
 
 def show_deposit(tx_hash, order_id):
     """One handleOps bundle carries several users, so only the matching deposit is this trade."""
-    print(f"\n  sold on Robinhood Chain   {tx_hash}")
+    print(f"\n  deposited on {here.name}   {tx_hash}")
     receipt = w3.eth.get_transaction_receipt(tx_hash)
     for log in receipt["logs"]:
-        if not log["topics"] or log["address"].lower() != DEPOSITORY.lower() or topic(log) not in ORDER_WORD:
+        if log["address"].lower() != DEPOSITORY.lower() or topic(log) not in ORDER_WORD:
             continue
         data = log["data"].hex().removeprefix("0x")
         if "0x" + word(data, ORDER_WORD[topic(log)]) != order_id:
@@ -371,34 +376,34 @@ def show_deposit(tx_hash, order_id):
             symbol, decimals = token(Web3.to_checksum_address("0x" + word(data, 1)[24:]))
             raw = int(word(data, 2), 16)
         else:
-            symbol, decimals, raw = "ETH", 18, int(word(data, 1), 16)
+            symbol, decimals, raw = here.native, 18, int(word(data, 1), 16)
         shown = f"{raw / 10**decimals:.6f} {symbol}" if decimals is not None else f"? {raw} raw, {symbol}"
-        print(f"    proceeds       {shown}")
+        print(f"    amount         {shown}")
         print(f"    from           {depositor}")
     print(f"    block          {receipt['blockNumber']}")
 
 
 order_id, source = "", ""
 solana_signature, solana_tx, solana_amount = "", None, 0
-robinhood_tx = ""
-settlement_signature, settlement_tx, robinhood_deposit = "", None, ""
+evm_tx = ""
+settlement_signature, settlement_tx, evm_deposit = "", None, ""
 direction = ""
 
 if target.startswith("0x") and len(target) == 66:
     deposits = 0
     try:
-        order_id, source, deposits = order_from_robinhood(target)
+        order_id, source, deposits = order_from_evm(target)
     except Exception:
         order_id = ""
     if order_id and source == "a deposit on this chain":
         # Proceeds going into Relay: a sell, whose other half is a payout on Solana.
-        robinhood_deposit, direction = target, "sell"
-        print(f"Robinhood Chain transaction {target}\n  it is {source}")
+        evm_deposit, direction = target, "sell"
+        print(f"{here.name} transaction {target}\n  it is {source}")
         if deposits > 1:
             print(f"  {deposits} deposits in this transaction, following the first")
     elif order_id:
-        robinhood_tx, direction = target, "buy"
-        print(f"Robinhood Chain transaction {target}\n  it is {source}")
+        evm_tx, direction = target, "buy"
+        print(f"{here.name} transaction {target}\n  it is {source}")
     else:
         order_id, direction = target, ""
         print(f"order id {target}")
@@ -421,7 +426,7 @@ elif len(target) > 60:
     else:
         sys.exit("  no Relay deposit and no order id memo — this is not a leg of a cross-chain trade")
 else:
-    sys.exit("give a Robinhood Chain transaction, a Solana signature, or an order id")
+    sys.exit(f"give a {here.name} transaction, a Solana signature, or an order id")
 
 if order_id != target:
     print(f"  order id {order_id}")
@@ -430,24 +435,24 @@ if order_id != target:
 if direction in ("", "buy"):
     if not solana_signature:
         solana_signature, solana_tx, solana_amount = find_solana_leg(order_id)
-    if not robinhood_tx:
-        robinhood_tx = find_robinhood_leg(order_id)
-    if solana_signature or robinhood_tx:
+    if not evm_tx:
+        evm_tx = find_evm_leg(order_id)
+    if solana_signature or evm_tx:
         direction = "buy"
 
 if direction in ("", "sell"):
-    if not robinhood_deposit:
-        robinhood_deposit = find_robinhood_deposit(order_id)
+    if not evm_deposit:
+        evm_deposit = find_evm_deposit(order_id)
     if not settlement_signature:
         settlement_signature, settlement_tx = find_solana_settlement(order_id)
-    if robinhood_deposit or settlement_signature:
+    if evm_deposit or settlement_signature:
         direction = "sell"
 
 if direction == "sell":
-    if robinhood_deposit:
-        show_deposit(robinhood_deposit, order_id)
+    if evm_deposit:
+        show_deposit(evm_deposit, order_id)
     else:
-        print(f"\n  sold on Robinhood Chain   not found in the last {minutes} min — widen the window")
+        print(f"\n  deposited on {here.name}   not found in the last {minutes} min — widen the window")
     if settlement_signature:
         show_settlement(settlement_signature, settlement_tx)
     else:
@@ -457,9 +462,9 @@ elif direction == "buy":
         show_solana(solana_signature, solana_tx, solana_amount)
     else:
         print(f"\n  paid on Solana   not found in the last {minutes} min — widen the window")
-    if robinhood_tx:
-        show_robinhood(robinhood_tx)
+    if evm_tx:
+        show_evm(evm_tx)
     else:
-        print(f"\n  filled on Robinhood Chain   not found in the last {minutes} min — not filled yet")
+        print(f"\n  filled on {here.name}   not found in the last {minutes} min — not filled yet")
 else:
     print(f"\n  neither leg found in the last {minutes} min — widen the window")

@@ -13,8 +13,13 @@ because an EOA emits nothing.
 
 Signatures are named from the registry's own event map first and from 4byte only for the
 topics it does not carry. A contract can also emit anonymous logs, which carry no topic0 at
-all and are counted as `(anonymous)`: the 0x Settler on this chain does, and its events are
-readable only by position.
+all and are counted as `(anonymous)`: the 0x Settler on Robinhood Chain does, and its events
+are readable only by position.
+
+The registry records Robinhood Chain in full. On any other chain only what FOMO shares across
+all of them is inventoried — the EntryPoint, the delegation, Relay's depository, routers and
+executors — together with that chain's cash from `evmChains`: those are what its listeners
+subscribe to.
 
 The window is small by default: it covers the Uniswap V4 PoolManager, which carries every
 V4 pool on the chain and tens of thousands of swaps an hour, so a wide span spends most of
@@ -22,7 +27,7 @@ its time re-reading one contract. Widen it when a quiet contract is the question
 
 Reference: docs/04-listening.md (Event surface), docs/07-addresses.md.
 
-    uv run scripts/maintenance/event_inventory.py [blocks]      default 2000 (~3 min of chain)
+    uv run scripts/maintenance/event_inventory.py <chain> [blocks]      default ~3 min of chain
 """
 
 import json
@@ -37,9 +42,12 @@ from web3 import Web3
 # on before shared/ is imported. registry.json is beside this file.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from shared import env
+from shared import cli, env
+from shared.evm import CHAINS, DEPOSITORY, ENTRYPOINT, EXECUTORS, FOMO_IMPLEMENTATION, ROUTERS
 
-w3 = Web3(Web3.HTTPProvider(env.endpoint("ROBINHOOD_MAINNET_HTTPS")))
+network = cli.evm_chain()
+here = CHAINS[network]
+w3 = Web3(Web3.HTTPProvider(env.endpoint(f"{here.variable}_MAINNET_HTTPS")))
 reg = json.loads((Path(__file__).parent / "registry.json").read_text())
 
 ANONYMOUS = "(anonymous)"
@@ -47,6 +55,12 @@ ANONYMOUS = "(anonymous)"
 
 def contracts():
     """(label, address, note) for every contract the registry records on this chain."""
+    if network != "rh":
+        out = [("entryPoint", ENTRYPOINT, "ERC-4337 v0.8"), ("relayDepository", DEPOSITORY, "Relay")]
+        out.append(("accountImplementation", "0x" + FOMO_IMPLEMENTATION, "7702 delegation target"))
+        out += [("relayRouter", r, "Relay") for r in ROUTERS] + [("relayExecutor", e, "Relay") for e in EXECUTORS]
+        cash = reg["evmChains"][network]["cash"]
+        return out + [(c["symbol"], c["address"], f"{c['decimals']} decimals") for c in cash]
     out = []
     for group in ("accountLayer", "intentLayer", "aggregationLayer"):
         for name, entry in reg[group].items():
@@ -104,10 +118,10 @@ def resolve(topic0):
     return name
 
 
-span = int(sys.argv[1]) if len(sys.argv) > 1 else 2000
+span = int(sys.argv[1]) if len(sys.argv) > 1 else max(1, round(180 / here.block_seconds))
 head = w3.eth.block_number
 lo = head - span
-print(f"blocks {lo}..{head}  (~{span * reg['chain']['blockTimeSeconds'] / 60:.0f} min)\n")
+print(f"{here.name}, blocks {lo}..{head}  (~{span * here.block_seconds / 60:.0f} min)\n")
 
 for label, addr, note in contracts():
     try:

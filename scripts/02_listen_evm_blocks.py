@@ -1,49 +1,52 @@
-"""Listen to FOMO trades on Robinhood Chain block by block, behind a newHeads subscription.
+"""Listen to FOMO trades on one EVM chain block by block, behind a newHeads subscription.
 
 New heads arrive over the socket and each sweep then fetches the logs of every block since
 the last one, so this listener groups a block's activity together and the same code can be
 pointed at history — at the cost of a few round trips per sweep. For a push-only stream
-that fetches nothing, see 01_listen_robinhood_logs.py. A confirmed log is the first sight
-of a trade either way.
+that fetches nothing, see 01_listen_evm_logs.py. A confirmed log is the first sight of a
+trade either way. The chain is the first argument, one of shared/evm.py's `CHAINS`.
 
 Emits BUY, SELL and PAY, defined in shared/feed.py. Here a buy is a Transfer out of Relay's
 executor into an address carrying FOMO's delegation, and a sell is the user's own operation
 moving a token into the executor — not classified by the presence of a `Swap` log, because
-two venues on this chain emit their own shapes and a sell through them has no `Swap` at
-all. A pay is money into the depository with no token leaving, and never names the token.
+some venues emit their own shapes and a sell through them has no `Swap` at all. A pay is
+money into the depository with no token leaving, and never names the token.
 
 Buys and sells are separated by what moved inside the user's own log-index span, not by
 the transaction: one handleOps bundle carries several users, so a hash join credits one
 person's swap to another person's deposit. A buy also carries the Relay order id that paid
 for it, in the last word of the fill's calldata.
 
-The HTTPS endpoint is served by several backends whose heads differ by a few blocks, and
-one that has not reached the end of a range answers with silently fewer logs. Logs are
-therefore asked for block by block, by the hash the head subscription delivered, and
-lookups are pinned to the block: a backend that lacks it refuses instead of answering
-short, and the sweep is retried.
+An HTTPS endpoint can be served by several backends whose heads differ by a few blocks, and
+one that has not reached the end of a range answers with silently fewer logs — Robinhood
+Chain's does. Logs are therefore asked for block by block, by the hash the head
+subscription delivered, and lookups are pinned to the block: a backend that lacks it
+refuses instead of answering short, and the sweep is retried. Asking by hash also keeps a
+reorganised block's logs out, since they belong to a hash nobody sweeps.
 
 A wallet's EIP-7702 delegation names the application behind it and is reported as
 `Trade.app`; FOMO is one tenant of Relay here, so that delegation is also the test that
-keeps the other tenants out. `listen()` here is the one implementation of this transport;
-00_listen_fomo.py imports it.
+keeps the other tenants out. A wallet that has never operated on this chain has no
+delegation yet, so `claimed`, a test on the order id, lets a caller that knows the order is
+FOMO's — 00_listen_fomo.py — have that delivery reported anyway. `listen()` here is the one
+implementation of this transport; 00_listen_fomo.py imports it.
 
-Reference: docs/04-listening.md (Robinhood Chain).
+Reference: docs/04-listening.md (EVM chains).
 
-    uv run scripts/02_listen_robinhood_blocks.py [seconds] [wallet ...]     default 120, FOMO only
+    uv run scripts/02_listen_evm_blocks.py <chain> [seconds] [wallet ...]     default 120, FOMO only
 """
 
 import asyncio
 import json
 import time
+from functools import partial
 
 import aiohttp
 import websockets
 from shared import cli, env
-from shared.feed import UNNAMED, Trade
-from shared.robinhood import (
+from shared.evm import (
     BURN,
-    CASH,
+    CHAINS,
     DECIMALS,
     DEPOSIT,
     DEPOSITORY,
@@ -64,20 +67,20 @@ from shared.robinhood import (
     padded_topic,
     quantity,
     span,
+    sponsored,
     trade_key,
     venues,
     where_of,
 )
+from shared.feed import UNNAMED, Trade
 from web3 import Web3
-
-WEBSOCKET = env.optional("ROBINHOOD_MAINNET_WSS")  # push: new heads
-HTTP = env.optional("ROBINHOOD_MAINNET_HTTPS")  # pull: logs and lookups
 
 RPC_TIMEOUT = aiohttp.ClientTimeout(total=10)
 BATCH = 50  # calls per request; a catch-up sweep asks for hundreds of things at once
 BEHIND = ("unknown block", "header not found")  # how a backend refuses a block it lacks
 MAX_SWEEP_BLOCKS = 300  # if the listener falls behind, jump forward rather than queue up
-STALL = 30  # seconds without a head before the subscription is called dead
+STALL = 30  # seconds without a head before the subscription is called dead, at the least
+OPEN_TIMEOUT = 30  # 00 opens every chain's socket at once, so a handshake can queue
 
 
 def result(reply):
@@ -89,7 +92,7 @@ def result(reply):
 
 # ------------------------------------------------------------------- reading a sweep
 # No network and no state: each takes the logs a sweep fetched and answers from them.
-# The rest of the decoding is in shared/robinhood.py.
+# The rest of the decoding is in shared/evm.py.
 
 
 def operation_boundaries(op_logs):
@@ -112,7 +115,7 @@ def swaps_by_transaction(swap_logs):
     return grouped
 
 
-def sold_in_span(sent, user, tx, start, end):
+def sold_in_span(sent, user, tx, start, end, cash):
     """(token, raw amount) this user moved into the executor inside their own operation.
 
     None when nothing left, which is what makes the deposit a payment rather than a
@@ -126,21 +129,26 @@ def sold_in_span(sent, user, tx, start, end):
             continue
         if address_in_topic(moved, 1).lower() != user.lower():
             continue
-        if moved["address"].lower() == CASH:
+        if moved["address"].lower() in cash:
             continue
         return moved["address"], int(moved["data"][2:] or "0", 16)
     return None
 
 
-async def listen(deadline, watched, emit, counts):
-    """Decode this transport until `deadline`, calling `emit` with one Trade per trade.
+async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
+    """Decode this transport on `chain` until `deadline`, calling `emit` with one Trade per trade.
 
     `watched` is a set of lowercased addresses, empty for every wallet. `Trade.key` is
     the transaction hash and the log index together, which is what identifies one trade
     across transports: the hash alone is not enough, because one handleOps bundle
-    carries several users' trades.
+    carries several users' trades. `claimed`, when given, says whether an order id is
+    FOMO's, which reports a fill to a wallet with no delegation on this chain yet.
     """
-    env.require("ROBINHOOD_MAINNET_WSS", "ROBINHOOD_MAINNET_HTTPS")
+    here = CHAINS[chain]
+    websocket, url = env.require(f"{here.variable}_MAINNET_WSS", f"{here.variable}_MAINNET_HTTPS")
+    # Blocks are a tenth of a second apart on one chain and twelve seconds on another, so
+    # the silence that means a dead subscription is measured in blocks, with a floor.
+    stall = max(STALL, 10 * here.block_seconds)
 
     meta, codes, orders = {}, {}, {}
     async with aiohttp.ClientSession(timeout=RPC_TIMEOUT) as http:
@@ -148,7 +156,7 @@ async def listen(deadline, watched, emit, counts):
         hashes = {}  # block number -> hash, from the head subscription
 
         async def rpc(method, params):
-            async with http.post(HTTP, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params}) as r:
+            async with http.post(url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params}) as r:
                 return (await r.json()).get("result")
 
         async def batched(calls):
@@ -156,7 +164,7 @@ async def listen(deadline, watched, emit, counts):
 
             async def part(chunk):
                 body = [{"jsonrpc": "2.0", "id": i, "method": m, "params": p} for i, (m, p) in enumerate(chunk)]
-                async with http.post(HTTP, json=body) as r:
+                async with http.post(url, json=body) as r:
                     replies = {reply["id"]: reply for reply in await r.json()}
                 return [replies.get(i, {}) for i in range(len(chunk))]
 
@@ -287,7 +295,7 @@ async def listen(deadline, watched, emit, counts):
                     meta[checksum(a)] = (decode_string(bytes.fromhex(symbol[2:])), int(decimals, 16))
             return True
 
-        def emit_deposits(payments, app, sent, ops, swaps):
+        def emit_deposits(payments, app, sent, ops, swaps, paid_for, sender_of):
             """A deposit is a sell when a token also left the same wallet, a payment when not.
 
             The deposit names the order it pays for either way, which is what joins it to
@@ -299,18 +307,28 @@ async def listen(deadline, watched, emit, counts):
                 if not wanted(user) or not mine(app[user]):
                     continue
                 if native:
-                    # Ether names no token, and its 18 decimals are a fact about the
-                    # chain rather than a guess standing in for a failed lookup.
+                    # The native asset names no token, and its 18 decimals are a fact about
+                    # the chain rather than a guess standing in for a failed lookup.
                     raw, order = native_deposit(log)
-                    symbol, decimals = "ETH", 18
+                    symbol, decimals = here.native, 18
                 else:
                     address, raw, order = erc20_deposit(log)
                     symbol, decimals = meta[checksum(address)]
                 paid = quantity(raw, decimals, symbol)
                 tx = log["transactionHash"]
                 start, end = span(ops.get(tx, []), int(log["logIndex"], 16))
+                # An operation's own `UserOperationEvent` closes its span, so `end` is the
+                # depositor's operation; a sweep has every log of its blocks, so a deposit with
+                # no operation after it is not inside one, and FOMO deposits only from one.
+                if sender_of.get((tx, end), "").lower() != user.lower():
+                    counts["deposits outside the depositor's own operation"] += 1
+                    continue
+                # A paymaster on the depositor's operation makes this another application's.
+                if (tx, end) in paid_for:
+                    counts["deposits sponsored by a paymaster, so not FOMO's"] += 1
+                    continue
 
-                went_out = sold_in_span(sent, user, tx, start, end)
+                went_out = sold_in_span(sent, user, tx, start, end, here.cash)
                 if went_out is None:
                     counts["PAY"] += 1
                     emit(Trade("PAY", paid, UNNAMED, user, app[user], "", where_of(log), trade_key(log), order))
@@ -340,10 +358,20 @@ async def listen(deadline, watched, emit, counts):
             """
             for log in fill_logs:
                 buyer = address_in_topic(log, 2)
-                if buyer == BURN or not wanted(buyer) or not mine(app[buyer]):
-                    continue
-                symbol, decimals = meta[checksum(log["address"])]
                 tx = log["transactionHash"]
+                if buyer == BURN or not wanted(buyer):
+                    continue
+                # A claimed order makes a plain address the buyer, never a router or pool
+                # the same fill moved tokens through on the way.
+                if not mine(app[buyer]):
+                    if app[buyer] != "eoa" or not claimed:
+                        continue
+                    if not claimed(orders.get(tx, "")):
+                        # Another application's user, or a FOMO payment the Solana leg has
+                        # not decoded yet: either way not reported, so counted rather than lost.
+                        counts["fills to a plain address no FOMO payment claimed"] += 1
+                        continue
+                symbol, decimals = meta[checksum(log["address"])]
                 counts["BUY"] += 1
                 emit(
                     Trade(
@@ -375,6 +403,10 @@ async def listen(deadline, watched, emit, counts):
             # it with, because the ether one names no token and puts its fields earlier.
             payments = [(log, False) for log in deposit_logs] + [(log, True) for log in native_logs]
             ops, swaps = operation_boundaries(op_logs), swaps_by_transaction(swap_logs)
+            paid_for = {(log["transactionHash"], int(log["logIndex"], 16)) for log in op_logs if sponsored(log)}
+            sender_of = {
+                (log["transactionHash"], int(log["logIndex"], 16)): "0x" + log["topics"][2][-40:] for log in op_logs
+            }
 
             resolved = await resolve_wallets(payments, fill_logs, at)
             if resolved is None:
@@ -383,11 +415,11 @@ async def listen(deadline, watched, emit, counts):
             if not await resolve_tokens(payments, fill_logs, sent, at):
                 return False
 
-            emit_deposits(payments, app, sent, ops, swaps)
+            emit_deposits(payments, app, sent, ops, swaps, paid_for, sender_of)
             emit_fills(fill_logs, app, swaps)
             return True
 
-        async with websockets.connect(WEBSOCKET, close_timeout=1) as socket:
+        async with websockets.connect(websocket, open_timeout=OPEN_TIMEOUT, close_timeout=1) as socket:
             await socket.send(
                 json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_subscribe", "params": ["newHeads"]})
             )
@@ -448,13 +480,14 @@ async def listen(deadline, watched, emit, counts):
                     await asyncio.sleep(0.05)
                     idle += 0.05
                     # Nothing is fetched to cover for a subscription that has gone quiet.
-                    # Blocks are a tenth of a second apart, so this long without one is a
-                    # subscription that is not delivering, and that is worth stopping for.
-                    if idle > STALL:
-                        raise RuntimeError(f"no new head for {STALL} s — the subscription is not delivering")
+                    # This long without a head is a subscription that is not delivering,
+                    # and that is worth stopping for.
+                    if idle > stall:
+                        raise RuntimeError(f"no new head for {stall:.0f} s — the subscription is not delivering")
             pump.cancel()
             await asyncio.gather(pump, return_exceptions=True)
 
 
 if __name__ == "__main__":
-    cli.run("rh-blocks", listen)
+    chain = cli.evm_chain()
+    cli.run(f"{chain}-blocks", partial(listen, chain=chain))

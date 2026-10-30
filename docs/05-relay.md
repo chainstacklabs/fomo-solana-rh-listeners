@@ -11,10 +11,10 @@ minute late and names no user.
 
 | Part | Where | What it does |
 |---|---|---|
-| Depository | every supported chain | Takes the user's money. On Solana this is a program with a single relevant instruction |
+| Depository | every supported chain | Takes the user's money. The same address on every EVM chain FOMO uses; on Solana a program with a single relevant instruction |
 | Router and executor | destination chains | Where a solver executes the fill and hands the token over |
 | Solvers | destination chains | Independent parties that front their own capital and are reimbursed afterwards |
-| Oracle | Relay's chain | Reads both chains, verifies the fill matches the order, submits a signed attestation |
+| Oracle | Relay's chain | Reads the origin and the destination chain, verifies the fill matches the order, submits a signed attestation |
 | Hub | Relay's chain | The ledger. A deposit mints a balance, a fill transfers it to the solver, a withdrawal burns it |
 | Allocator | Relay's chain | Authorizes withdrawals |
 | API | offchain | Quotes, order data, request status |
@@ -100,7 +100,9 @@ Markers for telling FOMO's flow apart from other Relay integrators are in
 
 Read from the chains. Relay's depository, router and executor on Robinhood Chain mainnet and its
 deposit program on Solana mainnet, over Chainstack nodes, re-verified 2026-09-09 by
-[`maintenance/verify_registry.py`](../scripts/maintenance/verify_registry.py). Addresses are in
+[`maintenance/verify_registry.py`](../scripts/maintenance/verify_registry.py); the same three
+contracts at the same addresses on BNB Smart Chain, Base, Ethereum and Monad mainnet, re-verified
+by the same script on 2026-10-30. Addresses are in
 [`registry.json`](../scripts/maintenance/registry.json). The settlement chain was read directly over
 `rpc.chain.relay.link` on 2026-09-09; the verifier does not reach it, so nothing there is
 re-checked on a run.

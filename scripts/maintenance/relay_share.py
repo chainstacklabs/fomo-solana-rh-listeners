@@ -43,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import base58
 from shared.env import endpoint
-from shared.robinhood import DELEGATION, DEPOSIT, DEPOSITORY, FOMO_CODE, NATIVE_DEPOSIT
+from shared.evm import DELEGATION, DEPOSIT, DEPOSITORY, FOMO_CODE, NATIVE_DEPOSIT
 from shared.solana import (
     CO_SIGNER,
     DEPOSIT_DISCRIMINATOR,
@@ -544,8 +544,9 @@ def main():
     if total_usd:
         print(f"  against all of Relay               {(fomo_rh + fomo_solana) / total_usd * 100:.1f}%")
     print("\n  Both halves are measured on the chain the money left, against a denominator")
-    print("  attested on Relay's. FOMO also trades on Base and BNB; deposits originating")
-    print("  there are in the denominator and not in FOMO's share, so this is a floor.")
+    print("  attested on Relay's. FOMO also trades on BNB Smart Chain, Base, Ethereum and")
+    print("  Monad; deposits originating there are in the denominator and not in FOMO's")
+    print("  share, so this is a floor.")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import time
 from collections import Counter
 
 from shared import env, feed
+from shared.evm import CHAINS
 from shared.transports import TRANSPORTS
 
 BASE58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
@@ -33,10 +34,21 @@ def host(url):
     return url.split("://")[-1].split("/")[0]
 
 
+def evm_chain():
+    """The chain an EVM listener was asked for, taken off the front of `sys.argv`.
+
+    It comes first and has no default: an EVM listener without a chain would be reading
+    one nobody named.
+    """
+    if len(sys.argv) < 2 or sys.argv[1].lower() not in CHAINS:
+        sys.exit(f"first argument is the chain, one of {', '.join(CHAINS)}")
+    return sys.argv.pop(1).lower()
+
+
 def arguments(argv, chain):
     """(seconds, watched) from a listener's positional arguments.
 
-    Addresses on Robinhood Chain are folded to lower case because the chain does not
+    Addresses on an EVM chain are folded to lower case because the chain does not
     distinguish them; base58 does, so a Solana address is kept exactly as it was given.
     """
     seconds = 120
@@ -50,7 +62,7 @@ def arguments(argv, chain):
         # cannot exist, which looks exactly like a chain that has gone quiet.
         if not wallet_shaped(arg):
             sys.exit(f"{arg!r} is not an address: 0x and 40 hex digits, or 32 to 44 base58 characters")
-    return seconds, {a.lower() for a in rest} if chain == "RH" else set(rest)
+    return seconds, set(rest) if chain == "SOL" else {a.lower() for a in rest}
 
 
 def run(name, listen, aside=""):

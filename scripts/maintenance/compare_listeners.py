@@ -36,7 +36,6 @@ Reference: docs/04-listening.md (Transports).
 """
 
 import asyncio
-import importlib
 import statistics
 import sys
 import time
@@ -48,11 +47,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared import transports
+from shared.evm import CHAINS
 from shared.transports import CHAIN_NAME, COMPARABLE, TRANSPORTS
 
-# Blocks are 0.1 s here and slots 0.4 s there, so both margins drop about three
-# seconds from each end of the common window rather than trusting its edges.
-MARGIN = {"Robinhood Chain": 30, "Solana": 8}
+# Each margin drops about three seconds' worth of blocks or slots from each end of the
+# common window rather than trusting its edges. Solana's slots are 0.4 s apart.
+MARGIN = {chain.name: max(1, round(3 / chain.block_seconds)) for chain in CHAINS.values()} | {"Solana": 8}
 
 
 def chain_of(name):
@@ -78,8 +78,13 @@ def report(chain, names, seen, heights):
     margin = MARGIN[chain]
     low = max(c[0] for c in covered.values()) + margin
     high = min(c[-1] for c in covered.values()) - margin
+    unit = "slots" if chain == "Solana" else "blocks"
     if high <= low:
-        print(f"\n{chain}: the transports never overlapped for long enough to compare\n")
+        # The covered span is read off the rows themselves, so a quiet chain with a trade
+        # or two leaves nothing once the margins are cut: too few trades, not a gap.
+        rows = len(set().union(*(seen[n] for n in names)))
+        print(f"\n{chain}: {rows} trades, too few to bound a span every transport covered")
+        print(f"  each end gives up {margin} {unit}, so a comparison needs trades further apart\n")
         return
 
     def inside(key):
@@ -88,7 +93,6 @@ def report(chain, names, seen, heights):
 
     window = {n: {k for k in seen[n] if inside(k)} for n in names}
     union = set().union(*window.values())
-    unit = "blocks" if chain == "Robinhood Chain" else "slots"
     print(f"\n{chain} — {len(union)} trades over {high - low + 1} {unit} every transport covered")
     print(f"{'':14}{'trades':>8}{'first':>8}{'p50 lag':>10}{'p90 lag':>10}{'missed':>8}")
     for n in names:
@@ -157,7 +161,7 @@ async def main():
         return emit
 
     deadline = time.time() + seconds
-    jobs = [importlib.import_module(TRANSPORTS[n].module).listen(deadline, set(), emitter(n), Counter()) for n in names]
+    jobs = [transports.listener(n)(deadline, set(), emitter(n), Counter()) for n in names]
     # A transport that dies takes its own measurement down and nothing else: the others
     # keep decoding, and what it managed before it stopped is still in the table.
     outcomes = await asyncio.gather(*jobs, return_exceptions=True)
