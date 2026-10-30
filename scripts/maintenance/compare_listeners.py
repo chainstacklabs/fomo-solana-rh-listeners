@@ -78,8 +78,13 @@ def report(chain, names, seen, heights):
     margin = MARGIN[chain]
     low = max(c[0] for c in covered.values()) + margin
     high = min(c[-1] for c in covered.values()) - margin
+    unit = "slots" if chain == "Solana" else "blocks"
     if high <= low:
-        print(f"\n{chain}: the transports never overlapped for long enough to compare\n")
+        # The covered span is read off the rows themselves, so a quiet chain with a trade
+        # or two leaves nothing once the margins are cut: too few trades, not a gap.
+        rows = len(set().union(*(seen[n] for n in names)))
+        print(f"\n{chain}: {rows} trades, too few to bound a span every transport covered")
+        print(f"  each end gives up {margin} {unit}, so a comparison needs trades further apart\n")
         return
 
     def inside(key):
@@ -88,7 +93,6 @@ def report(chain, names, seen, heights):
 
     window = {n: {k for k in seen[n] if inside(k)} for n in names}
     union = set().union(*window.values())
-    unit = "slots" if chain == "Solana" else "blocks"
     print(f"\n{chain} — {len(union)} trades over {high - low + 1} {unit} every transport covered")
     print(f"{'':14}{'trades':>8}{'first':>8}{'p50 lag':>10}{'p90 lag':>10}{'missed':>8}")
     for n in names:

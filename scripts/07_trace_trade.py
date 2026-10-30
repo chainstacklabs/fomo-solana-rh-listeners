@@ -10,7 +10,9 @@ The two directions are not shaped alike, and the id sits somewhere different in 
   buy    Solana pays, the EVM chain fills. The Relay deposit instruction carries the id
          after the amount; the solver's fill ends its router calldata with it.
   sell   The EVM chain executes, Solana pays out. The depository log carries the id in
-         its last word; the solver's transfer carries it in an spl-memo.
+         its last word; the solver's transfer carries it in an spl-memo. Cash moving to
+         Solana is the same shape with no swap before the deposit, so the deposit is
+         printed as one and not called a sale.
 
 A sell's payout is signed by a Relay solver and not by FOMO's co-signer, so no listener in
 this repository sees it — the co-signer subscription never receives that transaction. This
@@ -122,7 +124,7 @@ def order_from_evm(tx_hash):
         return "0x" + calldata[-64:], "a solver's fill", 1
     ids = []
     for log in w3.eth.get_transaction_receipt(tx_hash)["logs"]:
-        if not log["topics"] or log["address"].lower() != DEPOSITORY.lower():
+        if log["address"].lower() != DEPOSITORY.lower():
             continue
         position = ORDER_WORD.get(topic(log))
         if position is not None:
@@ -323,7 +325,7 @@ def show_evm(tx_hash):
     print(f"\n  filled on {here.name}   {tx_hash}")
     receipt = w3.eth.get_transaction_receipt(tx_hash)
     for log in receipt["logs"]:
-        if not log["topics"] or topic(log) != TRANSFER:
+        if topic(log) != TRANSFER:
             continue
         if topic(log, 1) not in EXECUTOR_TOPICS:
             continue
@@ -361,10 +363,10 @@ def show_settlement(signature, tx):
 
 def show_deposit(tx_hash, order_id):
     """One handleOps bundle carries several users, so only the matching deposit is this trade."""
-    print(f"\n  sold on {here.name}   {tx_hash}")
+    print(f"\n  deposited on {here.name}   {tx_hash}")
     receipt = w3.eth.get_transaction_receipt(tx_hash)
     for log in receipt["logs"]:
-        if not log["topics"] or log["address"].lower() != DEPOSITORY.lower() or topic(log) not in ORDER_WORD:
+        if log["address"].lower() != DEPOSITORY.lower() or topic(log) not in ORDER_WORD:
             continue
         data = log["data"].hex().removeprefix("0x")
         if "0x" + word(data, ORDER_WORD[topic(log)]) != order_id:
@@ -376,7 +378,7 @@ def show_deposit(tx_hash, order_id):
         else:
             symbol, decimals, raw = here.native, 18, int(word(data, 1), 16)
         shown = f"{raw / 10**decimals:.6f} {symbol}" if decimals is not None else f"? {raw} raw, {symbol}"
-        print(f"    proceeds       {shown}")
+        print(f"    amount         {shown}")
         print(f"    from           {depositor}")
     print(f"    block          {receipt['blockNumber']}")
 
@@ -450,7 +452,7 @@ if direction == "sell":
     if evm_deposit:
         show_deposit(evm_deposit, order_id)
     else:
-        print(f"\n  sold on {here.name}   not found in the last {minutes} min — widen the window")
+        print(f"\n  deposited on {here.name}   not found in the last {minutes} min — widen the window")
     if settlement_signature:
         show_settlement(settlement_signature, settlement_tx)
     else:

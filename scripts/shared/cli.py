@@ -40,9 +40,9 @@ def evm_chain():
     It comes first and has no default: an EVM listener without a chain would be reading
     one nobody named.
     """
-    if len(sys.argv) < 2 or sys.argv[1] not in CHAINS:
+    if len(sys.argv) < 2 or sys.argv[1].lower() not in CHAINS:
         sys.exit(f"first argument is the chain, one of {', '.join(CHAINS)}")
-    return sys.argv.pop(1)
+    return sys.argv.pop(1).lower()
 
 
 def arguments(argv, chain):

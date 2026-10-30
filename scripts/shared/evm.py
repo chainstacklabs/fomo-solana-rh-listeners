@@ -159,7 +159,11 @@ def topic(log, index=0):
     Raw JSON-RPC hands back a prefixed string and web3 hands back HexBytes, whose
     `hex()` drops the prefix. Stripping `0x` with `lstrip` would eat a leading zero
     of the topic itself, so the prefix is removed once and the value padded back.
+    A topic the log does not carry is "", which matches no topic: an anonymous event
+    has none at all, and a receipt read whole will hold one sooner or later.
     """
+    if len(log["topics"]) <= index:
+        return ""
     raw = log["topics"][index]
     raw = raw if isinstance(raw, str) else raw.hex()
     return "0x" + raw.removeprefix("0x").rjust(64, "0")
