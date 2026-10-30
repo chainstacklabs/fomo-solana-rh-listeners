@@ -49,7 +49,7 @@ from shared.robinhood import (
     DEPOSIT,
     DEPOSITORY,
     ENTRYPOINT,
-    EXECUTOR_TOPIC,
+    EXECUTOR_TOPICS,
     NATIVE_DEPOSIT,
     SYMBOL,
     TRANSFER,
@@ -306,8 +306,8 @@ async def listen(deadline, watched, emit, counts):
             ("userop", {"address": ENTRYPOINT, "topics": [USEROP]}),
             ("deposit", {"address": DEPOSITORY, "topics": [DEPOSIT]}),
             ("native", {"address": DEPOSITORY, "topics": [NATIVE_DEPOSIT]}),
-            ("fill", {"topics": [TRANSFER, EXECUTOR_TOPIC]}),
-            ("sold", {"topics": [TRANSFER, None, EXECUTOR_TOPIC]}),
+            ("fill", {"topics": [TRANSFER, EXECUTOR_TOPICS]}),
+            ("sold", {"topics": [TRANSFER, None, EXECUTOR_TOPICS]}),
             ("swap", {"topics": [list(VENUES)]}),
         ]
 

@@ -30,8 +30,10 @@ Bundlers are vanity-prefixed `0x4337…` addresses and rotate; treat them as unl
 | Address | What |
 |---|---|
 | `0x4cD00E387622C35bDDB9b4c962C136462338BC31` | depository — deposits land here |
-| `0xCcC88a9d1B4ED6b0EABA998850414b24f1c315bE` | router — users and solvers call it |
-| `0xb92fe925DC43a0ECdE6c8b1a2709c170Ec4fFf4f` | executor — moves the tokens; fills originate here |
+| `0x5567954cD026CEbFE486062cb75848e0f1c12E58` | router — a solver's fill calls it, and its calldata ends with the order id |
+| `0x0729E2a4716d9f7dD17858d5d504426D228697f7` | executor — moves the tokens; fills originate here |
+| `0xCcC88a9d1B4ED6b0EABA998850414b24f1c315bE` | router before October 2026 — still live for other Relay traffic |
+| `0xb92fe925DC43a0ECdE6c8b1a2709c170Ec4fFf4f` | executor before October 2026 — still live for other solver calls |
 | `0xf70da97812cb96acdf810712aa562db8dfa3dbef` | solver treasury — fronts fill capital, receives sweeps |
 | `0x63C1d3E9C646184529C5694630a01C00dF171b56` | depository allocator |
 | `0xF61A305199fa1135d76FFaB3752D42F55cBd775A` | depository owner |
@@ -99,7 +101,7 @@ Chain id 537713, RPC `https://rpc.chain.relay.link` and `wss://rpc.chain.relay.l
 ## Where this comes from
 
 Read from the chains. Every address here was re-verified against Robinhood Chain and Solana
-mainnet on 2026-09-09 by
+mainnet on 2026-10-30 by
 [`maintenance/verify_registry.py`](../scripts/maintenance/verify_registry.py) — code present where
 code is expected, EOAs still EOAs, every recorded event still firing at its address,
 and every recorded topic still the keccak of the signature beside it.

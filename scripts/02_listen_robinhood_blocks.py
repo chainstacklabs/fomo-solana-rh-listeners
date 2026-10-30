@@ -48,7 +48,7 @@ from shared.robinhood import (
     DEPOSIT,
     DEPOSITORY,
     ENTRYPOINT,
-    EXECUTOR_TOPIC,
+    EXECUTOR_TOPICS,
     NATIVE_DEPOSIT,
     SYMBOL,
     TRANSFER,
@@ -205,7 +205,7 @@ async def listen(deadline, watched, emit, counts):
             filters = (
                 {"address": ENTRYPOINT, "topics": [USEROP]},
                 {"address": DEPOSITORY, "topics": [DEPOSIT]},
-                {"topics": [TRANSFER, EXECUTOR_TOPIC]},
+                {"topics": [TRANSFER, EXECUTOR_TOPICS]},
                 {"topics": [list(VENUES)]},
                 {"address": DEPOSITORY, "topics": [NATIVE_DEPOSIT]},
             )

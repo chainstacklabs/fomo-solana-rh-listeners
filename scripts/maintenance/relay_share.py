@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import base58
 from shared.env import endpoint
 from shared.robinhood import DELEGATION, DEPOSIT, DEPOSITORY, FOMO_CODE, NATIVE_DEPOSIT
-from shared.solana import CO_SIGNER, DEPOSIT_DISCRIMINATOR, RELAY_DEPOSIT, mint_name
+from shared.solana import CO_SIGNER, DEPOSIT_DISCRIMINATOR, RELAY_DEPOSIT, TX_VERSION, mint_name
 
 REGISTRY = json.loads((Path(__file__).parent / "registry.json").read_text())
 RELAY_RPC = REGISTRY["relayChain"]["rpc"]
@@ -343,7 +343,7 @@ def transactions(url, wanted):
                     "jsonrpc": "2.0",
                     "id": index,
                     "method": "getTransaction",
-                    "params": [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+                    "params": [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": TX_VERSION}],
                 }
                 for index, signature in enumerate(chunk)
             ]

@@ -17,7 +17,7 @@ by a Relay solver rather than by FOMO's co-signer, so it arrives over a third
 subscription keyed on that solver, carrying the order id in a memo. That stream is
 every application Relay settles on Solana, not FOMO's alone, and nothing in a payout
 says which application it belongs to — a payout is named here only when its order id
-matches a sell this run already saw on Robinhood Chain. The rest are counted.
+matches a sell this run sees on Robinhood Chain, before or after it. The rest are counted.
 
 One transport per subject, named to override the default. The defaults are the three that
 run on an ordinary endpoint; a default whose endpoint is missing from .env exits saying
@@ -155,13 +155,19 @@ async def main():
     # Both directions join on the order id, and in both the half that arrives second
     # is the one worth printing whole. A buy is paid on Solana and named on Robinhood
     # Chain; a sell is made on Robinhood Chain and paid out on Solana.
-    paid, sold = {}, {}
+    paid, sold, payouts = {}, {}, {}
     joins = Counter()
 
     def remember(held, trade):
-        held[trade.order_id] = (trade.who, trade.gave or trade.got, time.time())
-        for key in [k for k, (_, _, at) in held.items() if time.time() - at > JOIN_WINDOW]:
+        held[trade.order_id] = (trade, time.time())
+        for key in [k for k, (_, at) in held.items() if time.time() - at > JOIN_WINDOW]:
             del held[key]
+            if held is payouts:
+                joins["Relay payouts for other applications"] += 1
+
+    def settles(sell, gap):
+        joins["sells settled on Solana"] += 1
+        return f"settles {feed.amount(sell.gave or sell.got)} sold by {feed.short(sell.who)}, seen {gap}"
 
     def run(name):
         chain = TRANSPORTS[name].chain
@@ -171,24 +177,34 @@ async def main():
             if trade.order_id and chain == "SOL" and trade.kind == "PAY":
                 remember(paid, trade)
             elif trade.order_id and chain == "RH" and trade.kind == "SELL":
-                remember(sold, trade)
+                if trade.order_id not in payouts:
+                    remember(sold, trade)
+                else:
+                    # The payout lands about a second after the sell, and a stream at
+                    # `processed` hears it before the sell's block has been decoded. The
+                    # payout was held for this sell, so it prints now, under it.
+                    payout, at = payouts.pop(trade.order_id)
+                    show(trade, chain, "")
+                    show(payout, "SOL", settles(trade, f"{time.time() - at:.1f}s later"))
+                    return
             elif trade.kind == "FILL":
                 # This stream carries every application Relay settles on Solana, and a
-                # payout says nothing about which. Only one whose order id matches a
-                # sell already seen here can be called FOMO's, so the rest are counted.
+                # payout says nothing about which. Only one whose order id matches a sell
+                # seen here can be called FOMO's. One that arrives first is held for its
+                # sell, and whatever is still unmatched when it expires is counted.
                 if trade.order_id not in sold:
-                    joins["Relay payouts for other applications"] += 1
+                    remember(payouts, trade)
                     return
-                who, gave, at = sold.pop(trade.order_id)
-                joins["sells settled on Solana"] += 1
-                tail = f"settles {feed.amount(gave)} sold by {feed.short(who)}, seen {time.time() - at:.1f}s earlier"
+                sell, at = sold.pop(trade.order_id)
+                tail = settles(sell, f"{time.time() - at:.1f}s earlier")
             elif trade.order_id and chain == "RH" and trade.order_id in paid:
-                who, gave, at = paid.pop(trade.order_id)
+                pay, at = paid.pop(trade.order_id)
                 joins["cross-chain trades seen whole"] += 1
                 # The join is the row worth reading, so it gets a line of its own.
                 # Seen, not settled: the gap is between this process noticing each
                 # half, so it carries whatever the two transports differ by.
-                tail = f"paid {feed.amount(gave)} by {feed.short(who)}, seen {time.time() - at:.1f}s earlier"
+                paid_with = feed.amount(pay.gave or pay.got)
+                tail = f"paid {paid_with} by {feed.short(pay.who)}, seen {time.time() - at:.1f}s earlier"
             show(trade, chain, tail)
 
         module = importlib.import_module(TRANSPORTS[name].module)
@@ -206,6 +222,8 @@ async def main():
     # that went quiet.
     if sold:
         joins["sells with no payout seen"] += len(sold)
+    if payouts:
+        joins["Relay payouts for other applications"] += len(payouts)
     merged = Counter(joins)
     # Keyed by transport, not by chain: `sol-blocks` and `payouts-blocks` both count
     # blocks, over different account filters, and one line adding the two together says

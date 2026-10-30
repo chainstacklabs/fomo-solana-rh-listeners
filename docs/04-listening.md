@@ -82,6 +82,12 @@ owned contracts rather than pools, and a sell through them produces no `Swap` lo
 code test. This is the first sight of the token bought; the venue comes from the swap logs in the
 same transaction, and the order id from the router's calldata.
 
+> [!WARNING]
+> Relay's executor and router are a pair of addresses each. FOMO's flow moved to a second pair in
+> October 2026, and the first pair still carries every earlier trade and other Relay traffic. A
+> filter on one executor sees no buys and no sells on the other: the deposits still arrive and read
+> as payments. Both pairs are in [`07-addresses.md`](07-addresses.md).
+
 **Buy payments.** Deposits into Relay's depository name the payer and the amount but never the
 destination. There are two deposit events, one per asset kind, and they are the same trade: watching
 only the ERC-20 shape silently loses every buy that was paid for in ether. Most buys landing on
@@ -152,6 +158,11 @@ on Yellowstone gRPC match an account anywhere in a transaction, signer or not.
 [`shared/geyser.py`](../scripts/shared/geyser.py) builds the gRPC one for
 [`03`](../scripts/03_listen_solana_grpc.py) and
 [`06`](../scripts/06_listen_relay_payouts_grpc.py). Each sends its own and reads what comes back.
+
+> [!WARNING]
+> Ask for `maxSupportedTransactionVersion: 1`. FOMO's same-chain swaps are version-1 transactions,
+> and a request capped at 0 is refused every one of them — `getTransaction` errors, and
+> `blockSubscribe` delivers the payments and none of the swaps. Geyser applies no cap.
 
 ### Reading a transaction
 
@@ -338,7 +349,11 @@ for the addresses that keep trading, joining each one's two chains by the same o
 Read from the chains. Every subscription and decoding rule here is implemented by the scripts in
 [`../scripts/`](../scripts/), run against Chainstack endpoints on both mainnets. Addresses, topics
 and event shapes are [`registry.json`](../scripts/maintenance/registry.json), re-verified
-2026-09-09; the transport comparison was last run 2026-09-05. The tenancy shares count three
+2026-10-30; the transport comparison was last run 2026-10-30. The second Relay pair was identified
+on 2026-10-30 by matching 21 Robinhood Chain fills to Solana deposits carrying the same order id:
+every one was a call to the new router ending in that id, delivered out of the new executor. The
+transaction version was read the same day off `getTransaction`, which refused every sampled swap
+at a cap of 0 and returned it at 1. The tenancy shares count three
 separate populations, sampled over the operations contract's own traffic, addresses receiving
 executor fills, and depository deposits; the first was re-measured on 2026-09-08 over 600 blocks,
 where 246 of 247 operations came from wallets carrying FOMO's delegation. The sell payout was

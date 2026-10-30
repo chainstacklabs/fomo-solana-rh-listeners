@@ -19,6 +19,11 @@ from shared.feed import NOTHING_MOVED, UNNAMED
 # closes the connection with a 1009 instead of delivering the block.
 MAX_FRAME_BYTES = 32 * 1024 * 1024
 
+# The newest transaction format a request accepts. A node refuses any transaction newer
+# than the cap rather than returning it, so a cap of 0 loses every version-1 transaction,
+# which is the format FOMO's swaps are sent in. Every Solana request here carries this.
+TX_VERSION = 1
+
 # Solana has no marker on an account that says FOMO. The co-signer on the transaction
 # is the only one there is, so everything here is found through it.
 CO_SIGNER = "AgmLJBMDCqWynYnQiPCuj9ewsNNsBJXyzoUhD9LJzN51"
@@ -111,7 +116,7 @@ def block_subscription(account):
                     "encoding": "jsonParsed",
                     "showRewards": False,
                     "transactionDetails": "full",
-                    "maxSupportedTransactionVersion": 0,
+                    "maxSupportedTransactionVersion": TX_VERSION,
                 },
             ],
         }

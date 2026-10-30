@@ -47,16 +47,16 @@ from shared.robinhood import (
     DELEGATION,
     DEPOSIT,
     DEPOSITORY,
-    EXECUTOR_TOPIC,
+    EXECUTOR_TOPICS,
     NATIVE_DEPOSIT,
-    ROUTER,
+    ROUTERS,
     SYMBOL,
     TRANSFER,
     decode_string,
     topic,
     word,
 )
-from shared.solana import DEPOSIT_DISCRIMINATOR, MEMO_PROGRAMS, RELAY_DEPOSIT, SETTLEMENT_SOLVER, mint_name
+from shared.solana import DEPOSIT_DISCRIMINATOR, MEMO_PROGRAMS, RELAY_DEPOSIT, SETTLEMENT_SOLVER, TX_VERSION, mint_name
 from web3 import Web3
 
 RH = env.endpoint("ROBINHOOD_MAINNET_HTTPS")
@@ -115,7 +115,7 @@ def order_from_robinhood(tx_hash):
     """(order id, what the transaction is, how many deposits it holds) for one hash."""
     transaction = w3.eth.get_transaction(tx_hash)
     calldata = transaction["input"].hex().removeprefix("0x")
-    if (transaction["to"] or "").lower() == ROUTER and len(calldata) >= 64:
+    if (transaction["to"] or "").lower() in ROUTERS and len(calldata) >= 64:
         return "0x" + calldata[-64:], "a solver's fill", 1
     ids = []
     for log in w3.eth.get_transaction_receipt(tx_hash)["logs"]:
@@ -136,7 +136,7 @@ def order_from_solana(signature):
         "jsonrpc": "2.0",
         "id": 1,
         "method": "getTransaction",
-        "params": [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+        "params": [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": TX_VERSION}],
     }
     tx = requests.post(SOLANA, json=body, timeout=60).json().get("result")
     if not tx:
@@ -196,7 +196,7 @@ def recent_signatures(address, noun):
 def find_solana_leg(order_id):
     """Search recent Relay deposits on Solana for the payment carrying this order id."""
     seen = recent_signatures(RELAY_DEPOSIT, "deposits")
-    options = {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}
+    options = {"encoding": "jsonParsed", "maxSupportedTransactionVersion": TX_VERSION}
     for start in range(0, len(seen), 100):
         chunk = seen[start : start + 100]
         fetched = batch(SOLANA, [("getTransaction", [s["signature"], options]) for s in chunk])
@@ -227,7 +227,7 @@ def memo_ids(tx):
 def find_solana_settlement(order_id):
     """Search the solver's recent payouts for the one whose memo is this order id."""
     seen = recent_signatures(SETTLEMENT_SOLVER, "payouts")
-    options = {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}
+    options = {"encoding": "jsonParsed", "maxSupportedTransactionVersion": TX_VERSION}
     for start in range(0, len(seen), 100):
         chunk = seen[start : start + 100]
         fetched = batch(SOLANA, [("getTransaction", [s["signature"], options]) for s in chunk])
@@ -261,7 +261,7 @@ def sweep_fills(order_id, low, high):
     """The fill in blocks low..high whose router call ends with this order id, or ""."""
     hashes = []
     for start in range(low, high + 1, SWEEP):
-        criteria = {"fromBlock": start, "toBlock": min(start + SWEEP - 1, high), "topics": [TRANSFER, EXECUTOR_TOPIC]}
+        criteria = {"fromBlock": start, "toBlock": min(start + SWEEP - 1, high), "topics": [TRANSFER, EXECUTOR_TOPICS]}
         for log in w3.eth.get_logs(criteria):
             h = log["transactionHash"].hex()
             hashes.append(h if h.startswith("0x") else "0x" + h)
@@ -270,7 +270,7 @@ def sweep_fills(order_id, low, high):
     for start in range(0, len(hashes), 100):
         chunk = hashes[start : start + 100]
         for h, info in zip(chunk, batch(RH, [("eth_getTransactionByHash", [t]) for t in chunk]), strict=True):
-            if not info or (info.get("to") or "").lower() != ROUTER:
+            if not info or (info.get("to") or "").lower() not in ROUTERS:
                 continue
             calldata = info["input"][2:]
             if len(calldata) >= 64 and "0x" + calldata[-64:] == order_id:
@@ -319,11 +319,10 @@ def show_solana(signature, tx, amount):
 def show_robinhood(tx_hash):
     print(f"\n  filled on Robinhood Chain   {tx_hash}")
     receipt = w3.eth.get_transaction_receipt(tx_hash)
-    executor = EXECUTOR_TOPIC[-40:]
     for log in receipt["logs"]:
         if not log["topics"] or topic(log) != TRANSFER:
             continue
-        if topic(log, 1)[-40:].lower() != executor:
+        if topic(log, 1) not in EXECUTOR_TOPICS:
             continue
         recipient = Web3.to_checksum_address("0x" + topic(log, 2)[-40:])
         # The executor also moves tokens through pools on its way; only a delegated
