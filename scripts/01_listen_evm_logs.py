@@ -89,6 +89,8 @@ MAX_FRAME_BYTES = 32 * 1024 * 1024
 # 00 opens every chain's socket at once beside Solana's full blocks, and a handshake that
 # would take a second alone can then wait past the client's default of ten.
 OPEN_TIMEOUT = 30
+OPERATION_WAITS = 6  # how many times a deposit waits for its own operation to arrive
+OPERATION_WAIT = 0.5  # seconds per wait
 
 
 # --------------------------------------------------------------------- asking the node
@@ -224,6 +226,8 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
     sold_in_tx, venue_in_tx, ops_in_tx = defaultdict(list), defaultdict(list), defaultdict(list)
     # (transaction, log index) of every operation a paymaster paid for: another application's.
     paid_for = set()
+    # (transaction, log index) of every operation, and whose it is.
+    sender_of = {}
     async with aiohttp.ClientSession(timeout=LOOKUP_TIMEOUT) as http:
         # The lookups above, bound to this run's session and caches, and the four steps
         # that turn one log into one Trade. Everything past them is the transport: what
@@ -247,8 +251,14 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
             if buyer == BURN or not wanted(watched, buyer):
                 return None, ""
             app = await owner_app(buyer, log["blockNumber"])
-            if is_fomo(app) or (app == "eoa" and claimed and claimed(await order_of(ask, orders, tx))):
+            if is_fomo(app):
                 return buyer, app
+            if app == "eoa" and claimed:
+                if claimed(await order_of(ask, orders, tx)):
+                    return buyer, app
+                # Another application's user, or a FOMO payment the Solana leg has not
+                # decoded yet: either way not reported, so counted rather than lost.
+                counts["fills to a plain address no FOMO payment claimed"] += 1
             return None, ""
 
         async def depositor_of(log):
@@ -303,9 +313,22 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
             half of one of these seen from the paying side. Both the sold token and the
             venue are scoped to the depositor's own operation rather than to the bundle.
             """
-            start, end = span(ops_in_tx.get(tx, []), int(log["logIndex"], 16))
             # An operation's own `UserOperationEvent` closes its span, so `end` is the
-            # depositor's operation, and a paymaster on it makes this another application's.
+            # depositor's operation. That log comes over another subscription, which the node
+            # does not order against this one, so it is waited for briefly; a deposit whose
+            # operation never arrives cannot be scoped or attributed, and is counted instead.
+            for _ in range(OPERATION_WAITS):
+                start, end = span(ops_in_tx.get(tx, []), int(log["logIndex"], 16))
+                if end != float("inf"):
+                    break
+                await asyncio.sleep(OPERATION_WAIT)
+            else:
+                counts["deposits whose operation never arrived"] += 1
+                return
+            if sender_of.get((tx, end), "").lower() != user.lower():
+                counts["deposits outside the depositor's own operation"] += 1
+                return
+            # A paymaster on the depositor's operation makes this another application's.
             if (tx, end) in paid_for:
                 counts["deposits sponsored by a paymaster, so not FOMO's"] += 1
                 return
@@ -435,6 +458,7 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
                         # just counted, because a deposit is classified by what moved inside
                         # the depositor's own span.
                         ops_in_tx[tx].append(int(log["logIndex"], 16))
+                        sender_of[(tx, int(log["logIndex"], 16))] = "0x" + log["topics"][2][-40:]
                         if sponsored(log):
                             paid_for.add((tx, int(log["logIndex"], 16)))
                     elif kind == "swap":
@@ -457,6 +481,7 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
                         venue_in_tx.clear()
                         ops_in_tx.clear()
                         paid_for.clear()
+                        sender_of.clear()
                         orders.clear()
 
                 release(everything=True)

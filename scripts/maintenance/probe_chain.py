@@ -112,8 +112,14 @@ def logs(criteria, low, high):
 
 
 def label(code):
-    """What an address's code says it is: fomo, another delegation, an EOA, or a contract."""
-    code = (code or "0x").lower()
+    """What an address's code says it is: fomo, another delegation, an EOA, or a contract.
+
+    A lookup that did not answer is said to have failed, never read as an EOA: a rate-limited
+    batch would otherwise report delegated wallets as plain addresses.
+    """
+    if code is None:
+        return "lookup failed"
+    code = code.lower()
     if code == "0x":
         return "eoa"
     if code == FOMO_CODE:

@@ -156,6 +156,12 @@ def count(rows):
             continue
         add("Solana", "trades that started and finished on Solana", value)
 
+    # A buy with no order id never crossed: the wallet paid with cash already on that chain,
+    # inside its own operation. The row names the token and not the cash spent.
+    for row in on_evm("BUY"):
+        if not row.get("order_id"):
+            missing["buys paid with cash already on their EVM chain: the token is named, the cash is not"] += 1
+
     # A payment names its size and never its token. The buy on the other chain names the
     # token and never a price, so the amount is read here and the chain is read there.
     for row in of_kind("SOL", "PAY"):

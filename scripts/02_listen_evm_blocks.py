@@ -295,7 +295,7 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
                     meta[checksum(a)] = (decode_string(bytes.fromhex(symbol[2:])), int(decimals, 16))
             return True
 
-        def emit_deposits(payments, app, sent, ops, swaps, paid_for):
+        def emit_deposits(payments, app, sent, ops, swaps, paid_for, sender_of):
             """A deposit is a sell when a token also left the same wallet, a payment when not.
 
             The deposit names the order it pays for either way, which is what joins it to
@@ -318,7 +318,12 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
                 tx = log["transactionHash"]
                 start, end = span(ops.get(tx, []), int(log["logIndex"], 16))
                 # An operation's own `UserOperationEvent` closes its span, so `end` is the
-                # depositor's operation, and a paymaster on it makes this another application's.
+                # depositor's operation; a sweep has every log of its blocks, so a deposit with
+                # no operation after it is not inside one, and FOMO deposits only from one.
+                if sender_of.get((tx, end), "").lower() != user.lower():
+                    counts["deposits outside the depositor's own operation"] += 1
+                    continue
+                # A paymaster on the depositor's operation makes this another application's.
                 if (tx, end) in paid_for:
                     counts["deposits sponsored by a paymaster, so not FOMO's"] += 1
                     continue
@@ -358,8 +363,14 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
                     continue
                 # A claimed order makes a plain address the buyer, never a router or pool
                 # the same fill moved tokens through on the way.
-                if not mine(app[buyer]) and not (app[buyer] == "eoa" and claimed and claimed(orders.get(tx, ""))):
-                    continue
+                if not mine(app[buyer]):
+                    if app[buyer] != "eoa" or not claimed:
+                        continue
+                    if not claimed(orders.get(tx, "")):
+                        # Another application's user, or a FOMO payment the Solana leg has
+                        # not decoded yet: either way not reported, so counted rather than lost.
+                        counts["fills to a plain address no FOMO payment claimed"] += 1
+                        continue
                 symbol, decimals = meta[checksum(log["address"])]
                 counts["BUY"] += 1
                 emit(
@@ -393,6 +404,9 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
             payments = [(log, False) for log in deposit_logs] + [(log, True) for log in native_logs]
             ops, swaps = operation_boundaries(op_logs), swaps_by_transaction(swap_logs)
             paid_for = {(log["transactionHash"], int(log["logIndex"], 16)) for log in op_logs if sponsored(log)}
+            sender_of = {
+                (log["transactionHash"], int(log["logIndex"], 16)): "0x" + log["topics"][2][-40:] for log in op_logs
+            }
 
             resolved = await resolve_wallets(payments, fill_logs, at)
             if resolved is None:
@@ -401,7 +415,7 @@ async def listen(deadline, watched, emit, counts, chain="rh", claimed=None):
             if not await resolve_tokens(payments, fill_logs, sent, at):
                 return False
 
-            emit_deposits(payments, app, sent, ops, swaps, paid_for)
+            emit_deposits(payments, app, sent, ops, swaps, paid_for, sender_of)
             emit_fills(fill_logs, app, swaps)
             return True
 

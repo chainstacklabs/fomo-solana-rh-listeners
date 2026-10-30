@@ -60,9 +60,11 @@ When the cash and the token are already on the same chain, nothing has to cross.
 order id exists, and the trade is a single swap through an aggregator with the proceeds landing in
 the user's own wallet.
 
-This path exists on Solana. It does not exist on any EVM chain: cash lives on Solana, so a token
-issued on an EVM chain is always bought from the other side. Every FOMO swap on an EVM chain is
-therefore either a solver filling someone's buy or a user's own sell, never a same-chain trade.
+This is the ordinary path on Solana. On an EVM chain it is the exception: cash lives on Solana, so
+a token issued on an EVM chain is nearly always bought from the other side, and nearly every FOMO
+swap there is either a solver filling someone's buy or a user's own sell. A wallet that already
+holds a stablecoin on the chain can buy there directly: Relay's executor delivers the token inside
+the wallet's own operation, with no order id and no leg on Solana.
 
 Stablecoins do move on the EVM chains outside a trade. A FOMO wallet that received cash there
 deposits it into Relay, and a solver pays the same amount out on Solana a second later. That is the
@@ -112,7 +114,10 @@ one trade.
 ## Where this comes from
 
 Read from the chains. Robinhood Chain, BNB Smart Chain, Base, Ethereum, Monad and Solana mainnet,
-over Chainstack nodes, with the scripts in [`../scripts/`](../scripts/). The fee payers, the zero
+over Chainstack nodes, with the scripts in [`../scripts/`](../scripts/). A buy made with cash
+already on an EVM chain was one of 12 EVM buys in a ten-minute recording of every chain on
+2026-10-30: a Base wallet carrying FOMO's delegation, in its own unsponsored operation, received
+the token from Relay's executor inside a `handleOps` bundle. The fee payers, the zero
 `actualGasCost` and the zero paymaster field were read on Robinhood Chain on 2026-09-08, and the
 zero paymaster on FOMO's operations on every EVM chain on 2026-10-30. Cash moving to Solana was
 observed on 2026-10-30, when a five-minute recording of every chain joined 19 stablecoin deposits

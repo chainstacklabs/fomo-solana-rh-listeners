@@ -89,7 +89,9 @@ it is reported as a settlement check under the table.
 | `chain unknown` | payments whose other leg was never seen |
 
 A payment on an EVM chain that a Solana payout settles is cash moving to Solana, not a trade, so it
-is no volume and is printed as a count beneath the table.
+is no volume and is printed as a count beneath the table. A `BUY` with no order id was paid with
+cash already on its EVM chain, inside the wallet's own operation; the row names the token but not
+the cash spent, so it is counted unpriced beneath the table rather than valued.
 
 `chain unknown` is what the recordings cannot place. A payment carries an order id and an amount
 and no destination, so the destination is the delivery on the far side. With every EVM chain FOMO

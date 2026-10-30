@@ -214,7 +214,10 @@ async def main():
                 # payout says nothing about which. Only one whose order id matches a sell or
                 # a payment seen here can be called FOMO's. One that arrives first is held
                 # for it, and whatever is still unmatched when it expires is counted.
-                held = sold if trade.order_id in sold else paid if trade.order_id in paid else None
+                # A payment held here may be Solana's own, which a payout never settles: only a
+                # payment on an EVM chain is cash on its way to Solana.
+                evm_paid = trade.order_id in paid and not paid[trade.order_id][0].where.startswith("slot")
+                held = sold if trade.order_id in sold else paid if evm_paid else None
                 if held is None:
                     remember(payouts, trade)
                     return

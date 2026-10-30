@@ -62,7 +62,12 @@ One buy per wallet per chain escapes that: the delegation is set by the wallet's
 on a chain, so a token delivered to a wallet that has never operated there lands at a plain
 address. Such a buy is FOMO's when its order id matches a payment FOMO's co-signer signed on Solana,
 which [`00_listen_fomo.py`](../scripts/00_listen_fomo.py) checks while it runs — only for a plain
-address, never for the routers and pools the same fill moves tokens through.
+address, never for the routers and pools the same fill moves tokens through. A fill to a plain
+address that no FOMO payment claims is counted, since it is either another application's user or a
+payment the Solana leg has not decoded yet.
+
+Both tests describe the applications seen sharing the delegation, which all use a paymaster. One
+that pays its own gas on the same delegation would pass them, and none has been seen.
 
 | Chain | Marker |
 |---|---|
@@ -389,7 +394,10 @@ paymasters: on BNB Smart Chain 25 of 199 operations from wallets carrying the de
 same day, Relay's `referrer` on deposits from such wallets on BNB Smart Chain and Base read `fomo`
 for all 8 with no paymaster and fun.xyz or tria for all 8 sponsored by `0x8888888888…`. Both
 transports agreed on every trade on Robinhood Chain, BNB Smart Chain, Base and Ethereum over
-four- and five-minute windows on 2026-10-30. Addresses, topics
+four- and five-minute windows on 2026-10-30. In a ten-minute recording of every chain that day,
+all 12 buys on EVM chains delivered to wallets carrying the delegation were FOMO's: 11 joined a
+payment FOMO's co-signer signed on Solana, and one ran inside the wallet's own unsponsored
+operation. Addresses, topics
 and event shapes are [`registry.json`](../scripts/maintenance/registry.json), re-verified
 2026-10-30; the transport comparison was last run 2026-10-30. The second Relay pair was identified
 on 2026-10-30 by matching 21 Robinhood Chain fills to Solana deposits carrying the same order id:

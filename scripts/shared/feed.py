@@ -88,6 +88,7 @@ REPEAT = 40  # rows between reprints of the header, so a burst cannot scroll it 
 KINDS = {"BUY": "32", "SELL": "31", "SWAP": "36", "PAY": "33", "IN": "32", "OUT": "31", "OTHER": "2"}
 KINDS["FILL"] = "32"
 CHAINS = {"RH": "35", "BSC": "33", "BASE": "36", "ETH": "37", "MON": "95", "SOL": "34"}
+CHAIN_WIDTH = max(map(len, CHAINS))  # the widest code, so "BASE" is never cut to "BA…"
 DIM = "2"
 NOMINAL = {"gave": 16, "got": 19, "who": 11, "note": 10, "where": 10, "key": 15}
 # What each column of the header means, printed under it once when a listener starts.
@@ -176,7 +177,7 @@ def widths(chains):
     """Nominal columns, given up in the order that costs least when the terminal is narrow."""
     columns = dict(NOMINAL)
     room = shutil.get_terminal_size().columns if ISATTY else PIPED
-    overhead = SEPARATORS + (4 if chains else 0)
+    overhead = SEPARATORS + (CHAIN_WIDTH + 1 if chains else 0)
     # A venue and a block number shorten harmlessly, so they go first. An amount does
     # not: cut it far enough and the symbol goes with it, and the symbol is the half
     # worth reading. Below the last floor the row wraps, always at the same place.
@@ -216,7 +217,7 @@ def header(columns, chains):
         row(
             chains,
             f"{'time':>7}",
-            fit("ch", 3),
+            fit("ch", CHAIN_WIDTH),
             fit("kind", 5),
             fit("gave", columns["gave"], ">"),
             "  ",
@@ -263,7 +264,7 @@ def start(script, *chains):
             row(
                 both,
                 paint(f"+{now - began:.1f}s".rjust(7), DIM),
-                paint(fit(chain, 3), CHAINS.get(chain, "")),
+                paint(fit(chain, CHAIN_WIDTH), CHAINS.get(chain, "")),
                 paint(fit(trade.kind, 5), KINDS.get(trade.kind, "")),
                 fit(amount(trade.gave), columns["gave"], ">"),
                 "->" if trade.gave and trade.got else "  ",
