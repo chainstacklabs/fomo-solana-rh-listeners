@@ -34,7 +34,8 @@
     "fomoWalletFingerprint": {
       "test": "eth_getCode(addr) == 0xef0100e6cae83bde06e4c305530e199d7217f42808555b",
       "what": "EIP-7702 delegation designator: 0xef0100 followed by the implementation the wallet runs. That implementation identifies the application, not just FOMO. Use it as a label, not only as a test.",
-      "note": "Dusting wallets delegate to 0x1c08930b2d330447e6c05b5be8c4caf172b4a174 - not FOMO."
+      "note": "Dusting wallets delegate to 0x1c08930b2d330447e6c05b5be8c4caf172b4a174 - not FOMO.",
+      "paymaster": "On every chain but Robinhood Chain other applications delegate to the same Simple7702Account, and the ones seen sponsor their users' operations through a paymaster (0x8888888888... carried fun.xyz and tria orders). FOMO's operations name none, because FOMO's bundler absorbs the gas. A deposit is FOMO's when the depositor carries the delegation and its UserOperationEvent has topic 3 (paymaster) zero. Checked 2026-10-30 against Relay's referrer field: 8 of 8 unsponsored deposits on BNB and Base were referrer fomo, 8 of 8 sponsored ones were not."
     },
     "bundlers": {
       "pattern": "EOAs prefixed 0x4337",
@@ -136,7 +137,9 @@
       "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f": "Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24) - Uniswap V4, singleton PoolManager",
       "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67": "Swap(address,address,int256,int256,uint160,uint128,int24) - Uniswap V3",
       "0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83": "Swap(address,address,int256,int256,uint160,uint128,int24,uint128,uint128) - Pancake V3 fork",
-      "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822": "Swap(address,uint256,uint256,uint256,uint256,address) - Uniswap V2, indexed sender and to, data is amount0In amount1In amount0Out amount1Out"
+      "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822": "Swap(address,uint256,uint256,uint256,uint256,address) - Uniswap V2, indexed sender and to, data is amount0In amount1In amount0Out amount1Out",
+      "0x04206ad2b7c0f463bff3dd4f33c5735b0f2957a351e4f79763a4fa9e775dd237": "Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24,uint16) - PancakeSwap Infinity, BNB Smart Chain",
+      "0xb3e2773606abfd36b5bd91394b3a54d1398336c65005baf7bf7a05efeffaf75b": "Swap(address,address,uint256,uint256,uint256,uint256) - the Solidly pair shape, Aerodrome on Base"
     },
     "factories": [
       {
@@ -743,5 +746,83 @@
       "verifiedAt": "2026-09-08"
     },
     "verifiedAt": "2026-09-06"
+  },
+  "evmChains": {
+    "_what": "Every EVM chain FOMO trades on, as shared/evm.py's CHAINS table carries it. Relay's depository, routers and executors, EntryPoint v0.8 and Simple7702Account sit at the addresses in accountLayer and intentLayer on every one of them. What differs is listed here. Cash is read off FOMO's own deposits on each chain.",
+    "rh": {
+      "chainId": 4663,
+      "native": "ETH",
+      "cash": [
+        {
+          "address": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+          "symbol": "USDG",
+          "decimals": 6
+        }
+      ],
+      "verifiedAt": "2026-10-30"
+    },
+    "bsc": {
+      "chainId": 56,
+      "native": "BNB",
+      "cash": [
+        {
+          "address": "0x55d398326f99059ff775485246999027b3197955",
+          "symbol": "USDT",
+          "decimals": 18
+        },
+        {
+          "address": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+          "symbol": "USDC",
+          "decimals": 18
+        }
+      ],
+      "verifiedAt": "2026-10-30"
+    },
+    "base": {
+      "chainId": 8453,
+      "native": "ETH",
+      "cash": [
+        {
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC",
+          "decimals": 6
+        }
+      ],
+      "verifiedAt": "2026-10-30"
+    },
+    "eth": {
+      "chainId": 1,
+      "native": "ETH",
+      "cash": [
+        {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "symbol": "USDC",
+          "decimals": 6
+        },
+        {
+          "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+          "symbol": "USDT",
+          "decimals": 6
+        }
+      ],
+      "verifiedAt": "2026-10-30"
+    },
+    "monad": {
+      "chainId": 143,
+      "native": "MON",
+      "cash": [
+        {
+          "address": "0x754704bc059f8c67012fed69bc8a327a5aafb603",
+          "symbol": "USDC",
+          "decimals": 6
+        },
+        {
+          "address": "0xe7cd86e13ac4309349f30b3435a9d337750fc82d",
+          "symbol": "USDT0",
+          "decimals": 6
+        }
+      ],
+      "verifiedAt": "2026-10-30"
+    }
   }
 }
