@@ -44,7 +44,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import base58
 from shared.env import endpoint
 from shared.robinhood import DELEGATION, DEPOSIT, DEPOSITORY, FOMO_CODE, NATIVE_DEPOSIT
-from shared.solana import CO_SIGNER, DEPOSIT_DISCRIMINATOR, RELAY_DEPOSIT, TX_VERSION, mint_name
+from shared.solana import (
+    CO_SIGNER,
+    DEPOSIT_DISCRIMINATOR,
+    NATIVE_DEPOSIT_DISCRIMINATOR,
+    RELAY_DEPOSIT,
+    TX_VERSION,
+    mint_name,
+)
 
 REGISTRY = json.loads((Path(__file__).parent / "registry.json").read_text())
 RELAY_RPC = REGISTRY["relayChain"]["rpc"]
@@ -362,7 +369,8 @@ def deposit_instructions(transaction):
     then the 32-byte order id; the mint is the instruction's fifth account. Decimals come
     from the transaction's own token balances, so nothing is scaled by a guessed 18 —
     a deposit whose mint or decimals cannot be read is returned unscaled and priced by
-    nobody.
+    nobody. A deposit of native SOL is its own instruction with the same layout and no
+    mint, and its scale is SOL's own nine places.
     """
     message = transaction["transaction"]["message"]
     meta = transaction.get("meta") or {}
@@ -373,7 +381,12 @@ def deposit_instructions(transaction):
         if instruction.get("programId") != RELAY_DEPOSIT or "data" not in instruction:
             continue
         raw = base58.b58decode(instruction["data"])
-        if len(raw) < 48 or raw[:8] != DEPOSIT_DISCRIMINATOR:
+        if len(raw) < 48:
+            continue
+        if raw[:8] == NATIVE_DEPOSIT_DISCRIMINATOR:
+            yield int.from_bytes(raw[8:16], "little"), "SOL", 9
+            continue
+        if raw[:8] != DEPOSIT_DISCRIMINATOR:
             continue
         accounts = instruction.get("accounts") or []
         mint = accounts[4] if len(accounts) > 4 else None

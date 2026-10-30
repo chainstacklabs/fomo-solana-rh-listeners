@@ -48,7 +48,7 @@ import time
 import websockets
 from shared import cli, env
 from shared.feed import Trade
-from shared.solana import MAX_FRAME_BYTES, MEMO_PROGRAMS, SETTLEMENT_SOLVER, SOL_DUST, block_subscription, mint_name
+from shared.solana import MAX_FRAME_BYTES, MEMO_PROGRAMS, SETTLEMENT_SOLVER, block_subscription, mint_name
 
 WEBSOCKET = env.optional("SOLANA_MAINNET_WSS")
 
@@ -70,7 +70,9 @@ def credited(meta, keys, solver):
 
     Tokens first, then lamports. A payout can be native SOL — a system transfer carrying
     the order id in a memo, with no token account anywhere in the transaction — and
-    reading only token balances drops those without noticing.
+    reading only token balances drops those without noticing. Any lamport gain counts,
+    however small: nothing but the recipient gains in a native payout, and payouts of a
+    few hundred lamports are real ones.
     """
 
     def held(side):
@@ -95,7 +97,7 @@ def credited(meta, keys, solver):
         for i, (pre, post) in enumerate(
             zip(meta.get("preBalances") or [], meta.get("postBalances") or [], strict=False)
         )
-        if i < len(keys) and keys[i] != solver and (post - pre) / 1e9 > SOL_DUST
+        if i < len(keys) and keys[i] != solver and post > pre
     ]
     if not lamports:
         return "", 0.0, ""
@@ -164,7 +166,7 @@ async def listen(deadline, watched, emit, counts):
                 # only the ones it can name, so a FILL tally there would overstate them.
                 counts["payouts"] += 1
                 signature = signatures[0]
-                got = f"{amount:.6f} {mint_name(mint)}"
+                got = f"{amount:.9f} SOL" if mint == "SOL" else f"{amount:.6f} {mint_name(mint)}"
                 emit(Trade("FILL", "", got, recipient, "", "", f"slot {value.get('slot')}", signature, order))
 
 
